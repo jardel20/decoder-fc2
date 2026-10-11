@@ -1,0 +1,26 @@
+[package]
+name = "fc2-rs"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+description = "Evidence-based inspection and active-work export of Falker FC2 files"
+
+[lib]
+name = "fc2_rs"
+
+[[bin]]
+name = "fc2"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+thiserror = "2.0"
+tempfile = "3.27"
+console = "=0.16.3"
+
+[lints.rust]
+unsafe_code = "forbid"

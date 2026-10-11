@@ -1,0 +1,19 @@
+/target/
+/local/
+# Derived records and measurements from the private reference image.
+/CFL2IMG-analysis.json
+*.FC2
+*.fc2
+*.xlsx
+*.xls
+*.csv
+/resultados/
+/node_modules/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+/secrets/
