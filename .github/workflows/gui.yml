@@ -1,0 +1,52 @@
+name: FC2 Explorer desktop
+on:
+  workflow_dispatch:
+  push:
+    paths: ["gui/**", "src/**", "tests/**", ".github/workflows/gui.yml"]
+permissions:
+  contents: read
+jobs:
+  desktop:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary: fc2-explorer
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: fc2-explorer.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Desktop build prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev pkg-config xvfb
+      - name: Rust stable target
+        run: rustup update stable && rustup default stable && rustup target add ${{ matrix.target }}
+      - name: Core tests
+        run: cargo test --workspace --locked --target ${{ matrix.target }}
+      - name: GUI formatting
+        run: cargo fmt --manifest-path gui/Cargo.toml --all -- --check
+      - name: Resolve GUI dependencies
+        shell: bash
+        run: |
+          if [ -f gui/Cargo.lock ]; then
+            cargo fetch --manifest-path gui/Cargo.toml --locked --target ${{ matrix.target }}
+          else
+            cargo fetch --manifest-path gui/Cargo.toml --target ${{ matrix.target }}
+          fi
+      - name: GUI build and headless tests
+        run: cargo test --manifest-path gui/Cargo.toml --locked --target ${{ matrix.target }}
+      - name: GUI lint
+        run: cargo clippy --manifest-path gui/Cargo.toml --locked --all-targets --target ${{ matrix.target }} -- -D warnings
+      - name: Release executable
+        run: cargo build --manifest-path gui/Cargo.toml --release --locked --target ${{ matrix.target }}
+      - name: Upload executable and resolved GUI lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: fc2-explorer-${{ matrix.target }}
+          path: |
+            gui/target/${{ matrix.target }}/release/${{ matrix.binary }}
+            gui/Cargo.lock
+          if-no-files-found: error

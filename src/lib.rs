@@ -4,6 +4,7 @@ pub mod blocks;
 pub mod decoder;
 pub mod downloads;
 pub mod error;
+pub mod explorer;
 pub mod export;
 pub mod filesystem;
 pub mod parser;

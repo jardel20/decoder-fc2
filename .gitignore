@@ -1,4 +1,5 @@
 /target/
+/gui/target/
 /local/
 # Derived records and measurements from the private reference image.
 /CFL2IMG-analysis.json

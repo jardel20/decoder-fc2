@@ -13,6 +13,33 @@ Arquivos e valores experimentais não fazem parte desta distribuição.
 
 ## Compilar e instalar
 
+### GUI desktop: FC2 Explorer
+
+A interface desktop está em `gui/`, compartilhando o decoder da biblioteca sem
+alterar a CLI/TUI. Inclui explorador com trabalhos/mapa/detalhes, tela de trabalho
+com abas, tabela virtualizada, inspeção de origem, temas claro/escuro e exportação
+XLSX simples/completa ou JSON de auditoria. O mapa usa coordenadas do decoder;
+o datum ainda não está confirmado. Tiles OpenStreetMap são ativados pelo usuário.
+
+```bash
+cargo run --manifest-path gui/Cargo.toml
+cargo run --manifest-path gui/Cargo.toml -- arquivo.FC2
+cargo build --manifest-path gui/Cargo.toml --release
+```
+
+Requer Rust 1.95 ou posterior. O executável é `gui/target/release/fc2-explorer`
+(Windows: `fc2-explorer.exe`). No Linux, necessita do ambiente gráfico/driver
+OpenGL e backend X11/Wayland; os diálogos usam o portal desktop do sistema.
+Os ícones e fontes estão incorporados, sem assets externos.
+
+**Estado de validação:** a camada de dados e navegação foi testada. A compilação
+e execução da janela permanecem pendentes neste ambiente, que não consegue
+baixar as dependências gráficas. Isso não certifica portabilidade da GUI.
+Instruções, dependências, trabalho dos subagentes e critérios pendentes estão em
+[docs/gui.md](docs/gui.md).
+
+### CLI/TUI existentes
+
 Requer Rust/Cargo com suporte à edição 2024 e um linker da plataforma.
 A compilação local foi feita com Rust 1.98.1; o mínimo efetivo de todas as
 dependências não foi testado. `rust-version = "1.85"` indica a base da edição,

@@ -1,0 +1,28 @@
+[package]
+name = "fc2-explorer"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+description = "Native FC2 Explorer using the existing evidence-based decoder"
+
+[features]
+screenshots = ["eframe/__screenshot"]
+
+[dependencies]
+fc2-rs = { path = ".." }
+eframe = { version = "=0.36.2", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "links", "accesskit"] }
+egui_extras = { version = "=0.36.2", default-features = false }
+egui_phosphor_icons = { version = "=0.5.0", default-features = false, features = ["bold", "fill"] }
+walkers = { version = "=0.61.0", default-features = false }
+rfd = "=0.17.2"
+
+[dev-dependencies]
+tempfile = "3.27"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+opt-level = 3
+strip = true
