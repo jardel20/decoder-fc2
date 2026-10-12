@@ -223,6 +223,10 @@ fn destination_picker_navigates_folders_and_cancels_without_changing_selection()
     std::fs::create_dir_all(&child).unwrap();
     std::fs::write(root.join("not-a-folder.txt"), "preserve").unwrap();
     app.export_root = root.clone();
+    // Browser::read canonicalizes paths; Windows may expand short names and
+    // add a verbatim prefix. Keep the input alias, normalize expected locations.
+    let root = root.canonicalize().unwrap();
+    let child = child.canonicalize().unwrap();
     app.submit(PromptAction::Search, "beta".into()).unwrap();
     app.key(Key::Char(' ')).unwrap();
     let old_browser = app.browser.directory.clone();

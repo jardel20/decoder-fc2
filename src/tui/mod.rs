@@ -1636,7 +1636,7 @@ mod tests {
         app.enter().unwrap();
         assert!(app.browser.directory.ends_with("dados"));
         app.key(Key::Backspace).unwrap();
-        assert_eq!(app.browser.directory, temp.path());
+        assert_eq!(app.browser.directory, temp.path().canonicalize().unwrap());
         assert_eq!(
             std::fs::read(temp.path().join("sample.FC2")).unwrap(),
             Vec::<u8>::new()
