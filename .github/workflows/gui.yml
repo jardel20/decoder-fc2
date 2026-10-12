@@ -2,7 +2,7 @@ name: FC2 Explorer desktop
 on:
   workflow_dispatch:
   push:
-    paths: ["gui/**", "src/**", "tests/**", ".github/workflows/gui.yml"]
+    paths: ["gui/**", "src/**", "tests/**", "assets/**", ".cargo/config.toml", ".github/workflows/gui.yml"]
 permissions:
   contents: read
 jobs:

@@ -3,6 +3,8 @@ pub mod file_picker;
 pub mod icons;
 pub mod maps;
 pub mod native_dialog;
+pub mod startup;
 pub mod state;
 pub mod tasks;
+pub mod terminal;
 pub mod theme;

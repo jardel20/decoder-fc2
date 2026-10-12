@@ -7,6 +7,7 @@ use egui_phosphor_icons::{Icon, icons};
 #[allow(dead_code)] // The complete action vocabulary is intentionally centralized.
 pub enum Glyph {
     FolderOpen,
+    Terminal,
     Folders,
     FileBinary,
     MapTrifold,
@@ -36,6 +37,7 @@ impl Glyph {
     fn icon(self) -> Icon {
         match self {
             Self::FolderOpen => icons::FOLDER_OPEN,
+            Self::Terminal => icons::TERMINAL_WINDOW,
             Self::Folders => icons::FOLDERS,
             // Phosphor 0.5 has BINARY, rather than FILE_BINARY.
             Self::FileBinary => icons::BINARY,

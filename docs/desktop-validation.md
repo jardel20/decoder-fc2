@@ -62,6 +62,47 @@ política persistente. Para abrir o executável após a compilação:
 Também aceita um FC2 como argumento. CLI/TUI continuam disponíveis em
 `target\x86_64-pc-windows-msvc\release\fc2.exe`.
 
+Para preparar **um único EXE portátil**, com GUI, TUI, ícone e fontes incorporados:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-portable-windows.ps1
+.\local\portable-windows\fc2-explorer.exe
+```
+
+Compartilhe somente `local\portable-windows\fc2-explorer.exe`. O destino não
+precisa de Rust, Falker Leaf, pasta `assets` ou outro executável. O runtime C MSVC
+é estático, conforme `.cargo/config.toml`. Drivers gráficos e bibliotecas do
+Windows continuam sendo fornecidos pelo sistema; os tiles do mapa exigem internet.
+O script exibe o SHA-256 do EXE produzido. Não inclui arquivos experimentais.
+
+O botão **TUI**, ao lado de **Abrir FC2**, abre o próprio EXE em modo terminal,
+com o FC2 atual quando carregado. Também aceita `fc2-explorer.exe --tui` ou
+`fc2-explorer.exe --tui "C:\dados\arquivo.FC2"`. Não use caminhos de exemplo que
+não existam: mensagens de abertura agora mostram o caminho utilizado. Ao iniciar
+sem argumentos, nenhum FC2 é carregado automaticamente.
+
+No Windows, o modo TUI usa uma pequena integração com
+[AttachConsole](https://learn.microsoft.com/en-us/windows/console/attachconsole)
+e [AllocConsole](https://learn.microsoft.com/en-us/windows/console/allocconsole).
+A exceção ao lint de `unsafe` fica restrita a essas duas chamadas sem ponteiros,
+documentadas em `gui/src/terminal.rs`; o restante da GUI continua com `unsafe`
+negado. No Linux, um terminal instalado é iniciado com argumentos literais.
+
+O ícone original `assets/app_icon.svg` foi convertido para PNG (janela) e ICO
+(recurso do EXE). As versões derivadas ficam no código-fonte e são incorporadas
+na compilação. Para regenerar com ImageMagick:
+
+```sh
+magick -background none assets/app_icon.svg -resize 64x64 assets/app_icon.png
+magick -background none assets/app_icon.svg -define icon:auto-resize=256,128,64,48,32,16 assets/app_icon.ico
+```
+
+As alterações de layout e argumentos foram testadas no Linux com testes
+headless. A execução do EXE portátil, do botão TUI e do recurso ICO no Windows
+ainda exige validação física. O erro `os error 3` informado pelo usuário não
+permite identificar o caminho inválido sem o comando/atalho usado; o diagnóstico
+adicionado permite obter essa informação na próxima execução.
+
 ## 3. Testar a janela com um FC2 real
 
 Registre plataforma, versão do Rust, resultado e mensagem de erro para cada item.

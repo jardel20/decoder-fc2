@@ -8,6 +8,33 @@ use fc2_explorer::{
 };
 
 #[test]
+fn application_background_fills_the_window_with_short_content() {
+    let ctx = egui::Context::default();
+    for dark in [true, false] {
+        theme::apply(&ctx, dark);
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 820.0),
+            )),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| {
+            let expected = ui.available_rect_before_wrap();
+            let frame = theme::application_frame(ui, |ui| {
+                ui.label("Sem registros");
+            });
+            assert!((frame.response.rect.height() - expected.height()).abs() < 1.0);
+            assert!((frame.response.rect.width() - expected.width()).abs() < 1.0);
+        });
+        output.textures_delta.clear();
+    }
+    let icon =
+        eframe::icon_data::from_png_bytes(include_bytes!("../../assets/app_icon.png")).unwrap();
+    assert_eq!((icon.width, icon.height), (64, 64));
+}
+
+#[test]
 fn both_themes_render_embedded_icons_cards_and_empty_offline_map() {
     let ctx = egui::Context::default();
     icons::install_fonts(&ctx);

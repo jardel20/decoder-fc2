@@ -92,7 +92,8 @@ impl Jobs {
                     text: "Lendo FC2 e verificando CRC/estruturas…".into(),
                 });
                 ctx.request_repaint();
-                let loaded = LoadedDataset::load(&path).map_err(|e| e.to_string())?;
+                let loaded = LoadedDataset::load(&path)
+                    .map_err(|e| format!("Não foi possível abrir '{}': {e}", path.display()))?;
                 if cancel.load(Ordering::Relaxed) {
                     return Ok(None);
                 }

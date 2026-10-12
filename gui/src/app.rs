@@ -174,6 +174,17 @@ impl ExplorerApp {
                         }
                     },
                 );
+                if icons::button(ui, Glyph::Terminal, "TUI").clicked() {
+                    let path = self
+                        .state
+                        .loaded
+                        .as_ref()
+                        .map(|loaded| loaded.source_path.as_path());
+                    match crate::terminal::launch(path) {
+                        Ok(()) => self.state.status = "TUI aberta em um terminal separado.".into(),
+                        Err(error) => self.state.error = Some(error),
+                    }
+                }
             });
         });
         ui.add_space(2.0);
@@ -762,24 +773,60 @@ impl eframe::App for ExplorerApp {
         {
             self.load(&ctx, Some(path));
         }
-        egui::Frame::central_panel(ui.style()).inner_margin(16).corner_radius(20).show(ui,|ui|{
+        theme::application_frame(ui, |ui| {
             self.header(ui);
-            if let Some(error)=self.state.error.clone(){ui.horizontal_wrapped(|ui|{ui.colored_label(ui.visuals().error_fg_color,&error);if icons::button(ui,Glyph::X,"Dispensar").clicked(){self.state.error=None;}});}
-            if let Some(busy)=self.state.busy.clone(){ui.horizontal(|ui|{ui.spinner();ui.label(busy);if self.pending_load.is_some()&&!self.cancel_requested&&icons::button(ui,Glyph::X,"Cancelar leitura").clicked(){self.jobs.cancel_load();self.cancel_requested=true;self.state.busy=Some("Cancelamento solicitado; aguarde a leitura ou feche o diálogo aberto.".into());}});}
-            let content=egui::vec2(ui.available_width(),(ui.available_height()-30.0).max(80.0));
+            if let Some(error) = self.state.error.clone() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.colored_label(ui.visuals().error_fg_color, &error);
+                    if icons::button(ui, Glyph::X, "Dispensar").clicked() {
+                        self.state.error = None;
+                    }
+                });
+            }
+            if let Some(busy) = self.state.busy.clone() {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(busy);
+                    if self.pending_load.is_some()
+                        && !self.cancel_requested
+                        && icons::button(ui, Glyph::X, "Cancelar leitura").clicked()
+                    {
+                        self.jobs.cancel_load();
+                        self.cancel_requested = true;
+                        self.state.busy = Some(
+                            "Cancelamento solicitado; aguarde a leitura ou feche o diálogo aberto."
+                                .into(),
+                        );
+                    }
+                });
+            }
+            let content = egui::vec2(
+                ui.available_width(),
+                (ui.available_height() - 30.0).max(80.0),
+            );
             ui.allocate_ui_with_layout(content,Layout::top_down(Align::Min),|ui|{
+                ui.set_min_size(content);
                 let key = egui::Id::new(format!("{:?}:{:?}:{}", self.state.view, self.state.tab, self.state.dark));
                 let opacity = self.transition.opacity(ui.ctx(), key);
                 ui.multiply_opacity(opacity);
                 if let Some(loaded)=self.state.loaded.clone(){match self.state.view{AppView::Explorer=>self.explorer(ui,&loaded),AppView::WorkDetail{work}=>self.detail(ui,&loaded,work)}}else{
                     theme::card(ui,|ui|{ui.heading("Explore os trabalhos do seu FC2");ui.label("Abra um arquivo ou arraste-o para esta janela. A leitura preserva o original e utiliza o decoder existente.");ui.add_enabled_ui(self.state.busy.is_none(),|ui|{if icons::button(ui,Glyph::FolderOpen,"Selecionar arquivo FC2").clicked(){self.load(ui.ctx(),None);}});ui.small("OpenStreetMap habilitado por padrão.");});
                 }
-            });ui.separator();
+            });
+            ui.separator();
             ui.horizontal(|ui| {
                 ui.label(icons::text(Glyph::Info));
                 let width = (ui.available_width() - 180.0).max(40.0);
-                ui.add_sized([width, 18.0], egui::Label::new(egui::RichText::new(&self.state.status).size(12.0)).truncate()).on_hover_text(&self.state.status);
-                ui.small(format!("v{} · Rust · egui · Walkers", env!("CARGO_PKG_VERSION"))).on_hover_text("Dados preservados · exploração estrutural FC2");
+                ui.add_sized(
+                    [width, 18.0],
+                    egui::Label::new(egui::RichText::new(&self.state.status).size(12.0)).truncate(),
+                )
+                .on_hover_text(&self.state.status);
+                ui.small(format!(
+                    "v{} · Rust · egui · Walkers",
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .on_hover_text("Dados preservados · exploração estrutural FC2");
             });
         });
         if self.state.settings_open {

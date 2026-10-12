@@ -109,6 +109,21 @@ pub fn apply(ctx: &egui::Context, dark: bool) {
     ctx.set_global_style(style);
 }
 
+/// Square outer frame that fills the viewport even when its content is empty.
+pub fn application_frame<R>(
+    ui: &mut egui::Ui,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::InnerResponse<R> {
+    let size = ui.available_size();
+    egui::Frame::central_panel(ui.style())
+        .inner_margin(16)
+        .corner_radius(0)
+        .show(ui, |ui| {
+            ui.set_min_size((size - egui::vec2(32.0, 32.0)).max(egui::Vec2::ZERO));
+            content(ui)
+        })
+}
+
 pub fn statistic(ui: &mut egui::Ui, value: usize, label: &str) {
     egui::Frame::new()
         .fill(ui.visuals().window_fill)
