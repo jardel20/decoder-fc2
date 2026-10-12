@@ -13,12 +13,26 @@ Para concluir fora deste ambiente, siga
 [o roteiro de validação desktop](desktop-validation.md), com scripts Linux e
 Windows, logs de compilação, testes manuais e verificação de portabilidade.
 
-No Linux, abrir FC2 e selecionar destinos de exportação usam um navegador de
-arquivos interno, sem depender de XDG Desktop Portal ou Zenity. Dê duplo clique
-nas pastas, pesquise pelo nome ou informe o caminho da pasta e clique em **Ir**.
-Selecione o FC2 e clique em **Selecionar**, ou abra por duplo clique. Na exportação
-XLSX, navegue até o destino e clique em **Usar esta pasta**. A listagem é carregada
-em segundo plano. Windows e macOS continuam usando os diálogos nativos via rfd.
+Abrir FC2 e selecionar destinos de exportação usam os diálogos do sistema via
+rfd em todas as plataformas, conforme solicitado pelo usuário. No Linux, é
+necessário um XDG Desktop Portal com backend de seleção de arquivos ou o fallback
+Zenity suportado por rfd. As falhas registradas por esse backend são mostradas
+na interface e no terminal; cancelar um diálogo não é tratado como erro. O
+navegador interno anterior não é mais acionado pela aplicação.
+
+`rfd 0.17.2` carrega `libdbus-1.so` dinamicamente. Em builds Linux nativos,
+`gui/build.rs` detecta seu diretório com pkg-config ou pelo daemon instalado no
+perfil do sistema e incorpora o caminho ao ELF. Isso permite localizar a
+biblioteca separada do NixOS sem instalar Zenity nem alterar a configuração do
+sistema. O portal e seu backend ainda precisam funcionar na sessão gráfica.
+Cross-builds não recebem caminhos de bibliotecas do host. A presença do caminho
+foi conferida com `readelf`, sem presumir portabilidade entre distribuições.
+
+**Todos** seleciona todos os trabalhos do arquivo, inclusive fora da pesquisa.
+O botão de limpar ao lado remove todas as marcações. Os marcados ficam em uma
+seção própria no topo, com rolagem independente e ordem mais recente primeiro;
+a busca afeta apenas os demais trabalhos. Essa ordem de apresentação não altera
+os bytes, os valores nem a ordem original dos registros exportados.
 
 ## Organização e contratos
 
@@ -135,7 +149,8 @@ Exportação não oferece cancelamento que aparente desfazer escrita já iniciad
 - A GUI não infere modelo, firmware, timezone ou unidades de campos desconhecidos.
 - Coordenadas são finitas/em limites, mas o datum não é comprovado; a sobreposição
   cartográfica é exploratória. Ausências não recebem pontos de exemplo.
-- Mapas iniciam sem pedidos externos. Ativar OSM revela a região dos tiles;
+- OpenStreetMap inicia habilitado, conforme solicitado pelo usuário, e pode ser
+  desativado nas configurações. A consulta revela a região dos tiles;
   nenhum FC2 ou registro é enviado. Cache HTTP e atribuição são preservados.
 - PMTiles foi avaliado, mas seletor/arquivo offline não estão implementados.
 - CSV científico continua condicionado a perfil na CLI; não foi criado bypass.

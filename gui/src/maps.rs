@@ -6,7 +6,7 @@ use crate::{
     theme,
 };
 use eframe::egui::{self, Stroke};
-use fc2_rs::explorer::{GeoPoint, RecordKey};
+use fc2_rs::explorer::{GeoPoint, LoadedDataset, RecordKey};
 use walkers::{HttpOptions, HttpTiles, Map, MapMemory, Tiles, lon_lat};
 
 const MERCATOR_LIMIT: f64 = 85.051_128_78;
@@ -23,9 +23,11 @@ pub struct MapPane {
 
 impl MapPane {
     pub fn new(context: &egui::Context) -> Self {
+        let mut memory = MapMemory::default();
+        let _ = memory.set_zoom(2.0);
         Self {
-            online: false,
-            memory: MapMemory::default(),
+            online: true,
+            memory,
             tiles: None,
             context: context.clone(),
             viewport: egui::vec2(640.0, 400.0),
@@ -47,8 +49,20 @@ impl MapPane {
         if renderable(&point) {
             self.memory
                 .center_at(lon_lat(point.longitude, point.latitude));
+            let _ = self.memory.set_zoom(17.0);
             self.initialized = true;
         }
+    }
+
+    /// Center on the geographic bounds, keeping the user-requested selection zoom.
+    /// Empty or unrenderable sets leave the viewport untouched.
+    pub fn center_points(&mut self, points: &[GeoPoint]) {
+        let Some((longitude, latitude, _)) = fit_bounds(points, self.viewport) else {
+            return;
+        };
+        self.memory.center_at(lon_lat(longitude, latitude));
+        let _ = self.memory.set_zoom(17.0);
+        self.initialized = true;
     }
 
     pub fn fit_points(&mut self, points: &[GeoPoint]) {
@@ -66,6 +80,7 @@ impl MapPane {
         points: &[GeoPoint],
         selected_work: Option<usize>,
         selected_record: Option<RecordKey>,
+        loaded: Option<&LoadedDataset>,
     ) -> Option<RecordKey> {
         if !self.initialized {
             self.fit_points(points);
@@ -79,13 +94,6 @@ impl MapPane {
             }
             if icons::button(ui, Glyph::ArrowsOut, "Enquadrar pontos").clicked() {
                 self.fit_points(points);
-            }
-            let mut online = self.online;
-            if ui
-                .checkbox(&mut online, "Tiles OpenStreetMap online")
-                .changed()
-            {
-                self.set_online(online);
             }
             ui.label(format!(
                 "{} coordenadas • zoom {:.1}",
@@ -111,8 +119,11 @@ impl MapPane {
             "© OpenStreetMap contributors",
             "https://www.openstreetmap.org/copyright",
         );
-        self.viewport = ui.available_size();
-        if self.online && self.tiles.is_none() && !points.is_empty() {
+        let (_, canvas_rect) = ui.allocate_space(ui.available_size());
+        self.viewport = canvas_rect.size();
+        let mut canvas = ui.new_child(egui::UiBuilder::new().max_rect(canvas_rect));
+        canvas.set_clip_rect(ui.clip_rect().intersect(canvas_rect));
+        if self.online && self.tiles.is_none() {
             let options = HttpOptions {
                 cache: Some(self.cache.clone()),
                 user_agent: Some(walkers::HeaderValue::from_static(concat!(
@@ -127,7 +138,7 @@ impl MapPane {
                 self.context.clone(),
             ));
         }
-        let tiles = if self.online && !points.is_empty() {
+        let tiles = if self.online {
             self.tiles.as_mut().map(|tiles| tiles as &mut dyn Tiles)
         } else {
             None
@@ -135,14 +146,16 @@ impl MapPane {
         let mut clicked = None;
         Map::new(tiles, &mut self.memory, lon_lat(0.0, 0.0))
             .zoom_with_ctrl(false)
-            .show(ui, |ui, response, projector, _| {
+            .show(&mut canvas, |ui, response, projector, _| {
                 let clip = response.rect;
                 let hover = response.hover_pos();
                 let mut hits: Vec<(f32, &GeoPoint)> = Vec::new();
                 // Linear painting avoids one egui widget and allocation per record.
                 // Offscreen markers are culled before issuing drawing commands.
                 for point in points.iter().filter(|point| renderable(point)) {
-                    let position = projector.project(lon_lat(point.longitude, point.latitude)).to_pos2();
+                    let position = projector
+                        .project(lon_lat(point.longitude, point.latitude))
+                        .to_pos2();
                     if !clip.expand(8.0).contains(position) {
                         continue;
                     }
@@ -155,9 +168,19 @@ impl MapPane {
                     } else {
                         theme::MAP_DEFAULT
                     };
-                    let radius = if selected { 7.0 } else if related { 5.0 } else { 3.5 };
+                    let radius = if selected {
+                        7.0
+                    } else if related {
+                        5.0
+                    } else {
+                        3.5
+                    };
                     ui.painter().circle_filled(position, radius, color);
-                    ui.painter().circle_stroke(position, radius, Stroke::new(1.0, theme::MAP_MARKER_BORDER));
+                    ui.painter().circle_stroke(
+                        position,
+                        radius,
+                        Stroke::new(1.0, theme::MAP_MARKER_BORDER),
+                    );
                     if let Some(pointer) = hover {
                         let distance = pointer.distance_sq(position);
                         if distance <= 100.0 {
@@ -166,20 +189,125 @@ impl MapPane {
                     }
                 }
                 hits.sort_by(|(a, left), (b, right)| a.total_cmp(b).then(left.key.cmp(&right.key)));
-                if let Some((_, point)) = hits.first() {
-                    response.clone().on_hover_text(format!(
-                        "{} registros próximos; clique para selecionar/alternar\nLatitude: {}\nLongitude: {}\nDatum não confirmado",
-                        hits.len(), point.latitude, point.longitude
-                    ));
+                if !hits.is_empty() {
+                    let selected_index = hits
+                        .iter()
+                        .position(|(_, point)| Some(point.key) == selected_record);
+                    let mut index = selected_index
+                        .or_else(|| {
+                            hits.iter()
+                                .position(|(_, point)| Some(point.key.work) == selected_work)
+                        })
+                        .unwrap_or(0);
                     if response.clicked() {
-                        let index = hits.iter().position(|(_, p)| Some(p.key) == selected_record)
-                            .map(|index| (index + 1) % hits.len()).unwrap_or(0);
+                        index = selected_index
+                            .map(|index| (index + 1) % hits.len())
+                            .unwrap_or(index);
                         clicked = Some(hits[index].1.key);
                     }
+                    let point = hits[index].1;
+                    egui::Tooltip::for_widget(response)
+                        .at_pointer()
+                        .gap(12.0)
+                        .width(320.0)
+                        .show(|ui| {
+                            ui.spacing_mut().item_spacing.y = 4.0;
+                            point_details(ui, loaded, point);
+                            if hits.len() > 1 {
+                                ui.separator();
+                                ui.small(format!(
+                                    "{} registros próximos; clique para alternar.",
+                                    hits.len()
+                                ));
+                            }
+                        });
                 }
             });
         clicked
     }
+}
+
+fn point_details(ui: &mut egui::Ui, loaded: Option<&LoadedDataset>, point: &GeoPoint) {
+    let Some(loaded) = loaded else {
+        ui.label("Dados do registro indisponíveis.");
+        return;
+    };
+    let Some(record) = loaded.record(point.key) else {
+        ui.label("Registro indisponível.");
+        return;
+    };
+    let Some(work) = loaded.work(point.key.work) else {
+        ui.label("Trabalho indisponível.");
+        return;
+    };
+    ui.label(egui::RichText::new(format!("Registro {}", record.id)).strong());
+    ui.weak(&work.display_name);
+    ui.separator();
+    egui::Grid::new((
+        "map-record-details",
+        point.key.work,
+        point.key.group,
+        point.key.record,
+    ))
+    .num_columns(2)
+    .min_row_height(24.0)
+    .spacing([12.0, 3.0])
+    .show(ui, |ui| {
+        for (label, value) in [
+            ("ID do trabalho", work.number.to_string()),
+            (
+                "Grupo",
+                work.groups
+                    .get(point.key.group)
+                    .map(|group| group.group.to_string())
+                    .unwrap_or_else(|| "—".into()),
+            ),
+            ("Ponto", record.point.to_string()),
+            ("Data", record.date.clone().unwrap_or_else(|| "—".into())),
+            ("Hora", record.time.clone().unwrap_or_else(|| "—".into())),
+            ("Índice a", record.chlorophyll_a_index.clone()),
+            ("Índice b", record.chlorophyll_b_index.clone()),
+            ("Índice total", record.chlorophyll_total_index.clone()),
+            (
+                "Latitude",
+                record
+                    .latitude
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "—".into()),
+            ),
+            (
+                "Longitude",
+                record
+                    .longitude
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "—".into()),
+            ),
+        ] {
+            ui.weak(label);
+            ui.label(value);
+            ui.end_row();
+        }
+    });
+    ui.separator();
+    ui.label(egui::RichText::new(format!("Avisos ({})", record.warnings.len())).strong());
+    if record.warnings.is_empty() {
+        ui.small("Nenhum aviso neste registro.");
+    } else {
+        egui::ScrollArea::vertical()
+            .id_salt((
+                "map-warnings",
+                point.key.work,
+                point.key.group,
+                point.key.record,
+            ))
+            .max_height(120.0)
+            .show(ui, |ui| {
+                for warning in &record.warnings {
+                    ui.colored_label(ui.visuals().warn_fg_color, warning);
+                }
+            });
+    }
+    ui.small("Datum não confirmado; localização cartográfica exploratória.");
 }
 
 fn renderable(point: &GeoPoint) -> bool {
@@ -284,6 +412,21 @@ mod tests {
     }
 
     #[test]
+    fn project_selection_centers_at_seventeen_and_missing_gps_preserves_view() {
+        let mut pane = MapPane::new(&egui::Context::default());
+        pane.center_points(&[point(-50.001, -20.0), point(-49.999, -20.0)]);
+        assert_eq!(pane.memory.zoom(), 17.0);
+        let center = pane.memory.detached().unwrap();
+        assert!((center.x() + 50.0).abs() < 1e-9);
+        assert!((center.y() + 20.0).abs() < 1e-9);
+        let _ = pane.memory.set_zoom(12.0);
+        pane.center_points(&[]);
+        pane.center_points(&[point(f64::NAN, 0.0), point(0.0, 90.0)]);
+        assert_eq!(pane.memory.zoom(), 12.0);
+        assert_eq!(pane.memory.detached().unwrap(), center);
+    }
+
+    #[test]
     fn fit_crosses_antimeridian_without_centering_on_greenwich() {
         let (longitude, latitude, zoom) = fit_bounds(
             &[point(179.0, 10.0), point(-179.0, 10.0)],
@@ -296,8 +439,11 @@ mod tests {
     }
 
     #[test]
-    fn offline_start_creates_no_downloader() {
-        let pane = MapPane::new(&egui::Context::default());
+    fn online_default_is_lazy_and_can_be_disabled() {
+        let mut pane = MapPane::new(&egui::Context::default());
+        assert!(pane.online);
+        assert!(pane.tiles.is_none());
+        pane.set_online(false);
         assert!(!pane.online);
         assert!(pane.tiles.is_none());
     }

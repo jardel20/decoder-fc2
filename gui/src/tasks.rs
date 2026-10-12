@@ -73,11 +73,16 @@ impl Jobs {
         self.cancel = Some(cancel.clone());
         std::thread::spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let path = path.or_else(|| {
-                    rfd::FileDialog::new()
-                        .add_filter("Falker FC2", &["FC2", "fc2"])
-                        .pick_file()
-                });
+                let path = if path.is_some() {
+                    path
+                } else {
+                    crate::native_dialog::choose(|| {
+                        rfd::FileDialog::new()
+                            .set_title("Abrir arquivo Falker FC2")
+                            .add_filter("Falker FC2", &["FC2", "fc2"])
+                            .pick_file()
+                    })?
+                };
                 let Some(path) = path else { return Ok(None) };
                 if cancel.load(Ordering::Relaxed) {
                     return Ok(None);
@@ -129,15 +134,17 @@ impl Jobs {
                         return Err("JSON de auditoria seleciona um trabalho por arquivo. Use completo para vários.".into());
                     }
                     let work = loaded.work(keys[0]).ok_or("Trabalho fora dos limites")?;
-                    rfd::FileDialog::new()
+                    crate::native_dialog::choose(|| rfd::FileDialog::new()
+                        .set_title("Salvar JSON de auditoria")
                         .set_directory(&root)
                         .set_file_name(format!("{}-auditoria.json", work.number))
                         .add_filter("JSON de auditoria", &["json"])
-                        .save_file()
+                        .save_file())?
                 } else {
-                    rfd::FileDialog::new()
+                    crate::native_dialog::choose(|| rfd::FileDialog::new()
+                        .set_title("Selecionar pasta de exportação")
                         .set_directory(&root)
-                        .pick_folder()
+                        .pick_folder())?
                         .map(|root| {
                             let stem = loaded
                                 .source_path

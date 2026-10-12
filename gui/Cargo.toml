@@ -16,6 +16,7 @@ egui_extras = { version = "=0.36.2", default-features = false }
 egui_phosphor_icons = { version = "=0.5.0", default-features = false, features = ["bold", "fill"] }
 walkers = { version = "=0.61.0", default-features = false }
 rfd = "=0.17.2"
+log = "0.4"
 
 [dev-dependencies]
 tempfile = "3.27"

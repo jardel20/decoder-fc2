@@ -74,7 +74,7 @@ Estes são testes pendentes, não resultados já obtidos:
 - Percorrer Medições, Mapa, Metadados e Exportação; selecionar registros,
   pesquisar, filtrar por grupo e conferir bytes/offsets no inspetor.
 - Alternar temas claro/escuro e redimensionar a janela.
-- Usar mapa offline, ligar mapas online explicitamente e testar zoom,
+- Conferir OpenStreetMap sempre habilitado, testar com e sem internet e verificar zoom,
   deslocamento e seleção. Ausência de coordenadas deve produzir estado vazio.
   Limites numéricos válidos não confirmam o datum nem a exatidão geográfica.
 - Exportar um e vários trabalhos em modo simples: somente XLSX. Conferir destino

@@ -14,6 +14,8 @@ pub enum Glyph {
     Table,
     MagnifyingGlass,
     Funnel,
+    SortAscending,
+    SortDescending,
     Export,
     GearSix,
     ArrowLeft,
@@ -42,6 +44,8 @@ impl Glyph {
             Self::Table => icons::TABLE,
             Self::MagnifyingGlass => icons::MAGNIFYING_GLASS,
             Self::Funnel => icons::FUNNEL,
+            Self::SortAscending => icons::SORT_ASCENDING,
+            Self::SortDescending => icons::SORT_DESCENDING,
             Self::Export => icons::EXPORT,
             Self::GearSix => icons::GEAR_SIX,
             Self::ArrowLeft => icons::ARROW_LEFT,
@@ -68,6 +72,17 @@ pub fn install_fonts(ctx: &egui::Context) {
 
 pub fn text(glyph: Glyph) -> RichText {
     glyph.icon().regular().size(super::theme::ICON_SIZE)
+}
+
+pub fn icon_button(ui: &mut egui::Ui, glyph: Glyph, label: &str) -> egui::Response {
+    let response = ui.add(egui::Button::new(text(glyph)).min_size(eframe::egui::vec2(
+        super::theme::CONTROL_HEIGHT,
+        super::theme::CONTROL_HEIGHT,
+    )));
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
+    response.on_hover_text(label)
 }
 
 /// One focusable, keyboard-accessible button containing an icon and visible text.

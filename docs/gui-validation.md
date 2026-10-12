@@ -1,5 +1,48 @@
 # GUI validation
 
+## Marker details and bounded layout
+
+The tooltip now uses the live LoadedDataset record and an explicit pointer anchor,
+with structured fields and warning details. Hit selection prefers the selected
+record/work and preserves cycling for overlaps. Walker painting is confined to
+an explicitly allocated canvas. A new headless component regression verifies
+matching top/bottom bounds of all three explorer columns with a map-filled panel;
+it passed alongside the previous component tests. Map unit tests also passed.
+Pointer interaction and final desktop appearance still require visual acceptance.
+
+## Work map focus and header actions
+
+Work selection and Map-tab clicks now share the project-point centering helper,
+with zoom 17.0. The added map regression verifies the geometric center, exact
+zoom and unchanged viewport for empty or unrenderable coordinate sets. All ten
+GUI tests passed. Header Info replaces Settings, with a separate accessible
+Phosphor moon/sun button that toggles the active theme; the Info window no longer
+contains a theme checkbox.
+
+## D-Bus runtime discovery
+
+Inspecting the cached rfd 0.17.2 source showed that its portal connection loads
+`libdbus-1.so.3` dynamically. The inspected runtime library environment omitted
+the installed D-Bus library directory, and portal configuration selected GTK.
+The new native Linux build script resolves that directory and adds an ELF runtime
+search path; `readelf -d` confirmed it in the built GUI executable. GUI build,
+nine GUI tests, and all-target Clippy passed. No system configuration was changed.
+Dialog diagnostics now preserve both the initial portal error and subsequent
+fallback error rather than replacing the former. Actual portal access remains
+unverified here because the managed environment cannot access the session bus.
+
+## Compact layout, pinned selections and native dialogs
+
+After the latest UI changes, `cargo test --locked --offline` passed the core
+suite, including two new state regressions: marking all works across a filtered
+search, and retaining marked works in newest-first order regardless of query or
+sorting. GUI Cargo tests passed nine tests, including native cancellation and
+backend-error propagation; all-target GUI Clippy and formatting passed.
+OpenStreetMap remains enabled with no UI opt-out. Native dialogs replace the
+internal picker in the live application; actual Linux portal availability cannot
+be verified from the restricted session bus. The existing internal picker module
+is retained but is not invoked by the GUI.
+
 ## Dependency-backed checks on 2026-10-12
 
 After dependencies became available in the local cache, GUI `cargo check` and
@@ -73,7 +116,7 @@ cargo clippy --manifest-path gui/Cargo.toml --all-targets -- -D warnings
 cargo run --manifest-path gui/Cargo.toml
 ```
 
-Manual desktop acceptance must cover native open/cancel, an invalid FC2, a real FC2, three-panel explorer, double-click/open/back, all detail tabs, theme changes, empty tables, missing GPS, offline markers, online tiles and attribution, XLSX/JSON success and errors, preserved values, and CLI/TUI regression execution. Tiles must remain opt-in and request only the current viewport; no bulk download is permitted.
+Manual desktop acceptance must cover native open/cancel, an invalid FC2, a real FC2, three-panel explorer, double-click/open/back, all detail tabs, theme changes, empty tables, missing GPS, offline markers, online tiles and attribution, XLSX/JSON success and errors, preserved values, and CLI/TUI regression execution. At the user's request, tiles now start enabled and can be disabled; requests remain limited to the current viewport, with no bulk downloads.
 
 Load cancellation is cooperative: results are discarded before/after decoding; an already-running decode is not forcibly interrupted. Export writes must not be presented as cancellable unless the worker actually supports cancellation. Only stage updates are implemented, not a fabricated percentage.
 

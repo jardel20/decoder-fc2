@@ -146,6 +146,45 @@ fn source() -> Vec<u8> {
 fn loaded() -> LoadedDataset {
     LoadedDataset::from_bytes(PathBuf::from("synthetic.FC2"), source()).unwrap()
 }
+
+#[test]
+fn marked_works_stack_in_selection_order_and_survive_search_and_sort() {
+    let mut state = State::default();
+    state.install(Arc::new(loaded()));
+    state.set_marked(0, true);
+    state.set_marked(1, true);
+    state.work_query = "no matching name".into();
+    state.refresh_works();
+    assert_eq!(state.visible_works, vec![1, 0]);
+    state.work_descending = true;
+    state.work_sort = WorkSort::Records;
+    state.refresh_works();
+    assert_eq!(state.visible_works, vec![1, 0]);
+    state.set_marked(1, false);
+    state.refresh_works();
+    assert_eq!(state.visible_works, vec![0]);
+    state.set_marked(0, false);
+    state.refresh_works();
+    assert!(state.visible_works.is_empty());
+}
+
+#[test]
+fn select_all_covers_hidden_works_and_clear_invalidates_cached_list() {
+    let mut state = State::default();
+    state.install(Arc::new(loaded()));
+    state.work_query = "20".into();
+    state.refresh_works();
+    assert_eq!(state.visible_works, vec![1]);
+    state.mark_all(true);
+    state.refresh_works();
+    assert_eq!(state.marked_works.len(), 2);
+    assert_eq!(state.visible_works, vec![1, 0]);
+    state.mark_all(false);
+    state.refresh_works();
+    assert_eq!(state.visible_works, vec![1]);
+    state.set_marked(999, true);
+    assert!(state.marked_works.is_empty());
+}
 #[allow(dead_code)]
 #[path = "../gui/src/state.rs"]
 mod state;

@@ -1,6 +1,5 @@
 //! Native navigation and presentation; expensive operations belong to `Jobs`.
 use crate::{
-    file_picker::{FilePicker, PickResult, PickerMode},
     icons::{self, Glyph},
     maps::MapPane,
     state::{AppView, ExportChoice, RecordSort, State, WorkSort, WorkTab},
@@ -12,15 +11,6 @@ use egui_extras::{Column, TableBuilder};
 use fc2_rs::explorer::LoadedDataset;
 use std::{path::PathBuf, sync::Arc};
 
-enum PickerPurpose {
-    Open,
-    Export {
-        loaded: Arc<LoadedDataset>,
-        keys: Vec<usize>,
-        choice: ExportChoice,
-    },
-}
-
 pub struct ExplorerApp {
     pub state: State,
     map: MapPane,
@@ -30,12 +20,13 @@ pub struct ExplorerApp {
     pending_export: Option<u64>,
     work_points: Vec<fc2_rs::explorer::GeoPoint>,
     points_work: Option<usize>,
-    picker: Option<(FilePicker, PickerPurpose)>,
+    transition: theme::Transition,
+    marked_list_revision: Vec<usize>,
 }
 impl ExplorerApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<PathBuf>) -> Self {
         icons::install_fonts(&cc.egui_ctx);
-        theme::apply(&cc.egui_ctx, false);
+        theme::apply(&cc.egui_ctx, true);
         let mut app = Self {
             state: State::default(),
             map: MapPane::new(&cc.egui_ctx),
@@ -45,7 +36,8 @@ impl ExplorerApp {
             pending_export: None,
             work_points: Vec::new(),
             points_work: None,
-            picker: None,
+            transition: theme::Transition::default(),
+            marked_list_revision: Vec::new(),
         };
         if let Some(path) = initial {
             app.load(&cc.egui_ctx, Some(path));
@@ -53,21 +45,7 @@ impl ExplorerApp {
         app
     }
     fn load(&mut self, ctx: &egui::Context, path: Option<PathBuf>) {
-        if self.pending_export.is_some() || self.pending_load.is_some() || self.picker.is_some() {
-            return;
-        }
-        if cfg!(target_os = "linux") && path.is_none() {
-            let directory = self
-                .state
-                .loaded
-                .as_ref()
-                .and_then(|loaded| loaded.source_path.parent().map(|path| path.to_owned()))
-                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")));
-            self.picker = Some((
-                FilePicker::new(PickerMode::Fc2, directory, String::new(), ctx),
-                PickerPurpose::Open,
-            ));
-            self.state.status = "Selecione um FC2 no navegador de arquivos.".into();
+        if self.pending_export.is_some() || self.pending_load.is_some() {
             return;
         }
         self.pending_load = Some(self.jobs.open_file(ctx, path));
@@ -141,37 +119,7 @@ impl ExplorerApp {
         }
     }
     fn export(&mut self, ctx: &egui::Context, loaded: &Arc<LoadedDataset>, keys: Vec<usize>) {
-        if self.state.busy.is_some() || self.picker.is_some() {
-            return;
-        }
-        if cfg!(target_os = "linux") {
-            if keys.is_empty() {
-                self.state.error = Some("Selecione pelo menos um trabalho.".into());
-                return;
-            }
-            let choice = self.state.export_choice;
-            if choice == ExportChoice::Json && keys.len() != 1 {
-                self.state.error =
-                    Some("Selecione um trabalho para exportar JSON de auditoria.".into());
-                return;
-            }
-            let mode = if choice == ExportChoice::Json {
-                PickerMode::Json
-            } else {
-                PickerMode::Folder
-            };
-            let filename = loaded
-                .work(keys[0])
-                .map(|work| format!("{}-auditoria.json", work.number))
-                .unwrap_or_default();
-            self.picker = Some((
-                FilePicker::new(mode, self.state.export_root.clone(), filename, ctx),
-                PickerPurpose::Export {
-                    loaded: loaded.clone(),
-                    keys,
-                    choice,
-                },
-            ));
+        if self.state.busy.is_some() {
             return;
         }
         self.pending_export = Some(self.jobs.export(
@@ -185,73 +133,54 @@ impl ExplorerApp {
         self.state.busy = Some("Escolha o destino da exportação…".into());
         self.state.error = None;
     }
-    fn file_picker(&mut self, ctx: &egui::Context) {
-        let result = self
-            .picker
-            .as_mut()
-            .and_then(|(picker, _)| picker.show(ctx));
-        let Some(result) = result else { return };
-        let Some((_, purpose)) = self.picker.take() else {
-            return;
-        };
-        match (result, purpose) {
-            (PickResult::Cancelled, _) => self.state.status = "Seleção cancelada.".into(),
-            (PickResult::Selected(path), PickerPurpose::Open) => self.load(ctx, Some(path)),
-            (
-                PickResult::Selected(path),
-                PickerPurpose::Export {
-                    loaded,
-                    keys,
-                    choice,
-                },
-            ) => {
-                let destination = if choice == ExportChoice::Json {
-                    path
-                } else {
-                    let stem = loaded
-                        .source_path
-                        .file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy();
-                    fc2_rs::paths::new_output(&path, &format!("{stem}-trabalhos"))
-                };
-                self.pending_export = Some(self.jobs.export(
-                    ctx,
-                    &loaded,
-                    keys,
-                    choice,
-                    self.state.export_root.clone(),
-                    Some(destination),
-                ));
-                self.state.busy = Some("Validando origem e exportando dados preservados…".into());
-                self.state.error = None;
-            }
-        }
-    }
     fn header(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
             if matches!(self.state.view, AppView::WorkDetail { .. })
                 && icons::button(ui, Glyph::ArrowLeft, "Voltar").clicked()
             {
                 self.state.back();
             }
-            ui.heading("FC2 Explorer");
-            ui.weak(format!("v{}", env!("CARGO_PKG_VERSION")));
-            ui.add_enabled_ui(
-                self.pending_export.is_none()
-                    && self.pending_load.is_none()
-                    && self.picker.is_none(),
-                |ui| {
-                    if icons::button(ui, Glyph::FolderOpen, "Abrir FC2").clicked() {
-                        self.load(ui.ctx(), None);
-                    }
-                },
-            );
-            if icons::button(ui, Glyph::GearSix, "Configurações").clicked() {
-                self.state.settings_open = !self.state.settings_open;
-            }
+            ui.label(icons::text(Glyph::FileBinary));
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new("FC2 Explorer").size(16.0).strong())
+                    .on_hover_text("Explorador de arquivos Falker");
+                if matches!(self.state.view, AppView::Explorer) {
+                    ui.small("Explorador de arquivos Falker");
+                }
+            });
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if icons::button(ui, Glyph::Info, "Info").clicked() {
+                    self.state.settings_open = !self.state.settings_open;
+                }
+                let glyph = if self.state.dark {
+                    Glyph::Moon
+                } else {
+                    Glyph::Sun
+                };
+                let label = if self.state.dark {
+                    "Tema escuro ativo — alternar para claro"
+                } else {
+                    "Tema claro ativo — alternar para escuro"
+                };
+                if icons::icon_button(ui, glyph, label).clicked() {
+                    self.state.dark = !self.state.dark;
+                    theme::apply(ui.ctx(), self.state.dark);
+                }
+                ui.add_enabled_ui(
+                    self.pending_export.is_none() && self.pending_load.is_none(),
+                    |ui| {
+                        if icons::button(ui, Glyph::FolderOpen, "Abrir FC2").clicked() {
+                            self.load(ui.ctx(), None);
+                        }
+                    },
+                );
+            });
         });
-        if let Some(loaded) = &self.state.loaded {
+        ui.add_space(2.0);
+        ui.separator();
+        if let Some(loaded) = &self.state.loaded
+            && matches!(self.state.view, AppView::Explorer)
+        {
             ui.horizontal_wrapped(|ui| {
                 ui.label(icons::text(Glyph::FileBinary));
                 ui.label(
@@ -261,27 +190,28 @@ impl ExplorerApp {
                         .unwrap_or_default()
                         .to_string_lossy(),
                 );
-                ui.separator();
-                ui.label(format!(
-                    "{} trabalhos • {} registros • {} GPS",
-                    loaded.dataset.works.len(),
-                    loaded.summaries.iter().map(|s| s.records).sum::<usize>(),
-                    loaded.locations.len()
-                ));
-                ui.label(format!(
-                    "CRC: {} setores conferidos",
+                ui.label(icons::text(Glyph::CheckCircle).color(theme::ACCENT));
+                ui.weak(format!(
+                    "CRC conferido · {} setores",
                     loaded.dataset.filesystem.crc_verified_count
+                ));
+                ui.separator();
+                ui.label(format!("{} trabalhos", loaded.dataset.works.len()));
+                ui.label(format!(
+                    "{} registros",
+                    loaded
+                        .summaries
+                        .iter()
+                        .map(|summary| summary.records)
+                        .sum::<usize>()
                 ));
             });
         }
-        ui.separator();
+        ui.add_space(2.0);
     }
     fn settings(&mut self, ctx: &egui::Context) {
         let mut open = self.state.settings_open;
-        egui::Window::new("Configurações").open(&mut open).resizable(false).show(ctx,|ui| {
-            ui.horizontal(|ui| {ui.label(icons::text(if self.state.dark {Glyph::Moon}else{Glyph::Sun})); if ui.checkbox(&mut self.state.dark,"Tema escuro").changed() {theme::apply(ctx,self.state.dark);}});
-            let mut online=self.map.online;
-            if ui.checkbox(&mut online,"Consultar tiles OpenStreetMap").changed(){self.map.set_online(online);}
+        egui::Window::new("Info").open(&mut open).resizable(false).show(ctx,|ui| {
             ui.label("A consulta cartográfica envia ao provedor a região visível. Os dados FC2 não são enviados.");
             ui.label("Sem conexão, a camada local de pontos continua disponível.");
             ui.separator(); ui.label("Destino inicial de exportação:");
@@ -305,35 +235,45 @@ impl ExplorerApp {
             ui.allocate_ui_with_layout(
                 egui::vec2(left, size.y),
                 Layout::top_down(Align::Min),
-                |ui| self.works(ui, loaded),
+                |ui| theme::panel(ui, |ui| self.works(ui, loaded)),
             );
-            ui.separator();
             let right = if compact { 0.0 } else { 260.0 };
             let width = (size.x - left - right - 32.0).max(100.0);
             ui.allocate_ui_with_layout(
                 egui::vec2(width, size.y),
                 Layout::top_down(Align::Min),
                 |ui| {
-                    if compact {
-                        self.work_details(ui, loaded, true);
-                        ui.separator();
-                    }
-                    if let Some(key) = self.map.show(
-                        ui,
-                        &loaded.locations,
-                        self.state.selected_work,
-                        self.state.selected_record,
-                    ) {
-                        self.state.select_record(key);
-                    }
+                    theme::panel(ui, |ui| {
+                        ui.label(egui::RichText::new("Visão geográfica").strong());
+                        let map_height =
+                            (ui.available_height() - if compact { 160.0 } else { 0.0 }).max(1.0);
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(ui.available_width(), map_height),
+                            Layout::top_down(Align::Min),
+                            |ui| {
+                                if let Some(key) = self.map.show(
+                                    ui,
+                                    &loaded.locations,
+                                    self.state.selected_work,
+                                    self.state.selected_record,
+                                    Some(loaded),
+                                ) {
+                                    self.state.select_record(key);
+                                }
+                            },
+                        );
+                        if compact {
+                            ui.add_space(8.0);
+                            self.work_details(ui, loaded, true);
+                        }
+                    });
                 },
             );
             if !compact {
-                ui.separator();
                 ui.allocate_ui_with_layout(
                     egui::vec2(right, size.y),
                     Layout::top_down(Align::Min),
-                    |ui| self.work_details(ui, loaded, false),
+                    |ui| theme::panel(ui, |ui| self.work_details(ui, loaded, false)),
                 );
             }
         });
@@ -359,52 +299,65 @@ impl ExplorerApp {
                 ui.selectable_value(&mut self.state.work_sort, WorkSort::Name, "Nome");
                 ui.selectable_value(&mut self.state.work_sort, WorkSort::Records, "Registros");
             });
-        ui.checkbox(&mut self.state.work_descending, "Decrescente");
-        ui.small("Espaço marca a seleção; duplo clique abre.");
-        self.state.refresh_works();
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.state.work_descending, "Decrescente");
+            let mut all = self.state.marked_works.len() == loaded.dataset.works.len() && !loaded.dataset.works.is_empty();
+            if ui.checkbox(&mut all, "Todos").on_hover_text("Selecionar ou desmarcar todos os trabalhos do arquivo, inclusive fora da busca").changed() { self.state.mark_all(all); }
+            if !self.state.marked_works.is_empty() && icons::button(ui, Glyph::X, "").on_hover_text("Limpar todas as marcações").clicked() { self.state.mark_all(false); }
+        });
+        ui.small("Espaço marca; duplo clique abre.");
         if !ui.ctx().text_edit_focused()
             && ui.input(|i| i.key_pressed(egui::Key::Space))
             && let Some(work) = self.state.selected_work
-            && !self.state.marked_works.remove(&work)
         {
-            self.state.marked_works.insert(work);
+            self.state
+                .set_marked(work, !self.state.marked_works.contains(&work));
         }
+        self.state.refresh_works();
         let count = self.state.visible_works.len();
+        let marked: Vec<_> = self
+            .state
+            .visible_works
+            .iter()
+            .copied()
+            .filter(|index| self.state.marked_works.contains(index))
+            .collect();
+        let others: Vec<_> = self
+            .state
+            .visible_works
+            .iter()
+            .copied()
+            .filter(|index| !self.state.marked_works.contains(index))
+            .collect();
+        let list_height = (ui.available_height() - 118.0).max(80.0);
+        if !marked.is_empty() {
+            ui.label(egui::RichText::new(format!("Selecionados ({})", marked.len())).strong());
+            let mut scroll = egui::ScrollArea::vertical().id_salt("marked-works");
+            if self.marked_list_revision != marked {
+                self.marked_list_revision = marked.clone();
+                scroll = scroll.vertical_scroll_offset(0.0);
+            }
+            scroll
+                .max_height(if others.is_empty() {
+                    list_height - 24.0
+                } else {
+                    list_height * 0.45
+                })
+                .show_rows(ui, 52.0, marked.len(), |ui, range| {
+                    for row in range {
+                        self.work_row(ui, loaded, marked[row]);
+                    }
+                });
+            if !others.is_empty() {
+                ui.separator();
+            }
+        }
         egui::ScrollArea::vertical()
             .id_salt("works")
-            .max_height((ui.available_height() - 118.0).max(60.0))
-            .show_rows(ui, 56.0, count, |ui, range| {
+            .max_height((ui.available_height() - 118.0).max(30.0))
+            .show_rows(ui, 52.0, others.len(), |ui, range| {
                 for row in range {
-                    let index = self.state.visible_works[row];
-                    let work = &loaded.dataset.works[index];
-                    ui.push_id(index, |ui| {
-                        ui.horizontal(|ui| {
-                            let mut marked = self.state.marked_works.contains(&index);
-                            if ui.checkbox(&mut marked, "").changed() {
-                                if marked {
-                                    self.state.marked_works.insert(index);
-                                } else {
-                                    self.state.marked_works.remove(&index);
-                                }
-                            }
-                            let response = ui.selectable_label(
-                                self.state.selected_work == Some(index),
-                                format!(
-                                    "{} · {}\n{} registros · {} grupos",
-                                    work.number,
-                                    work.display_name,
-                                    loaded.summaries[index].records,
-                                    loaded.summaries[index].groups
-                                ),
-                            );
-                            if response.clicked() {
-                                self.state.select_work(index);
-                            }
-                            if response.double_clicked() {
-                                self.state.open_work(index);
-                            }
-                        });
-                    });
+                    self.work_row(ui, loaded, others[row]);
                 }
             });
         ui.small(format!(
@@ -447,6 +400,50 @@ impl ExplorerApp {
             },
         );
     }
+    fn work_row(&mut self, ui: &mut egui::Ui, loaded: &LoadedDataset, index: usize) {
+        let work = &loaded.dataset.works[index];
+        ui.push_id(index, |ui| {
+            ui.horizontal(|ui| {
+                let mut marked = self.state.marked_works.contains(&index);
+                if ui.checkbox(&mut marked, "").changed() {
+                    self.state.set_marked(index, marked);
+                    self.state.select_work(index);
+                    self.center_work_map(loaded, index);
+                    ui.ctx().request_repaint();
+                }
+                let response = ui.selectable_label(
+                    self.state.selected_work == Some(index),
+                    format!(
+                        "{} · {}\n{} registros · {} grupos",
+                        work.number,
+                        work.display_name,
+                        loaded.summaries[index].records,
+                        loaded.summaries[index].groups
+                    ),
+                );
+                if response.clicked() {
+                    self.state.select_work(index);
+                    self.center_work_map(loaded, index);
+                }
+                if response.double_clicked() {
+                    self.state.open_work(index);
+                    self.center_work_map(loaded, index);
+                }
+            });
+        });
+    }
+    fn center_work_map(&mut self, loaded: &LoadedDataset, work: usize) {
+        if self.points_work != Some(work) {
+            self.work_points = loaded
+                .locations
+                .iter()
+                .filter(|point| point.key.work == work)
+                .copied()
+                .collect();
+            self.points_work = Some(work);
+        }
+        self.map.center_points(&self.work_points);
+    }
     fn work_details(&mut self, ui: &mut egui::Ui, loaded: &Arc<LoadedDataset>, compact: bool) {
         let Some(index) = self.state.selected_work else {
             ui.label("Selecione um trabalho.");
@@ -456,7 +453,7 @@ impl ExplorerApp {
             return;
         };
         let summary = loaded.summaries[index];
-        ui.heading(&work.display_name);
+        ui.label(egui::RichText::new(&work.display_name).size(18.0).strong());
         ui.label(format!(
             "ID {} • {} registros • {} grupos",
             work.number, summary.records, summary.groups
@@ -503,6 +500,7 @@ impl ExplorerApp {
         }
         if icons::button(ui, Glyph::ArrowRight, "Abrir trabalho").clicked() {
             self.state.open_work(index);
+            self.center_work_map(loaded, index);
         }
     }
     fn detail(&mut self, ui: &mut egui::Ui, loaded: &Arc<LoadedDataset>, work_index: usize) {
@@ -510,45 +508,70 @@ impl ExplorerApp {
             self.state.back();
             return;
         };
-        ui.heading(&work.display_name);
         let summary = loaded.summaries[work_index];
-        ui.label(format!(
-            "ID {} • {} registros • {} grupos • {} GPS • {} avisos em registros",
-            work.number,
-            summary.records,
-            summary.groups,
-            summary.coordinate_records,
-            summary.warned_records
-        ));
+        theme::card(ui, |ui| {
+            ui.set_min_width((ui.available_width() - 2.0).max(0.0));
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new(&work.display_name).size(20.0).strong());
+                ui.weak(format!("ID {}", work.number));
+                ui.separator();
+                ui.label(format!("{} registros", summary.records));
+                ui.label(format!("{} grupos", summary.groups));
+                ui.label(format!("{} coordenadas", summary.coordinate_records));
+                ui.label(
+                    icons::text(if work.errors.is_empty() {
+                        Glyph::CheckCircle
+                    } else {
+                        Glyph::WarningCircle
+                    })
+                    .color(if work.errors.is_empty() {
+                        theme::ACCENT
+                    } else {
+                        ui.visuals().warn_fg_color
+                    }),
+                );
+                ui.label(if work.errors.is_empty() {
+                    "Estrutura interpretada"
+                } else {
+                    "Estrutura com erros"
+                });
+                if summary.warned_records > 0 {
+                    ui.weak(format!("{} registros com avisos", summary.warned_records));
+                }
+            });
+        });
+        ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
-            for (tab, glyph, label) in [
+            for (tab, _glyph, label) in [
                 (WorkTab::Measurements, Glyph::Table, "Medições"),
                 (WorkTab::Map, Glyph::MapTrifold, "Mapa"),
                 (WorkTab::Metadata, Glyph::Info, "Metadados"),
                 (WorkTab::Export, Glyph::Export, "Exportação"),
             ] {
-                ui.label(icons::text(glyph));
-                ui.selectable_value(&mut self.state.tab, tab, label);
+                if theme::tab(ui, self.state.tab == tab, label).clicked() {
+                    self.state.tab = tab;
+                    if tab == WorkTab::Map {
+                        self.center_work_map(loaded, work_index);
+                    }
+                }
             }
         });
-        ui.separator();
+        ui.add_space(4.0);
         match self.state.tab {
-            WorkTab::Measurements => self.measurements(ui, loaded, work_index),
+            WorkTab::Measurements => theme::card(ui, |ui| {
+                ui.label(egui::RichText::new("Registros do trabalho").strong());
+                self.measurements(ui, loaded, work_index);
+            }),
             WorkTab::Map => {
                 if self.points_work != Some(work_index) {
-                    self.work_points = loaded
-                        .locations
-                        .iter()
-                        .filter(|p| p.key.work == work_index)
-                        .copied()
-                        .collect();
-                    self.points_work = Some(work_index);
+                    self.center_work_map(loaded, work_index);
                 }
                 if let Some(key) = self.map.show(
                     ui,
                     &self.work_points,
                     Some(work_index),
                     self.state.selected_record,
+                    Some(loaded),
                 ) {
                     self.state.select_record(key);
                 }
@@ -610,6 +633,7 @@ impl ExplorerApp {
             ("Índice a", RecordSort::A),
             ("Índice b", RecordSort::B),
             ("Total", RecordSort::Total),
+            ("Avisos", RecordSort::Warnings),
         ];
         let mut selected = None;
         egui::ScrollArea::horizontal()
@@ -620,16 +644,17 @@ impl ExplorerApp {
                     .striped(true)
                     .resizable(true)
                     .sense(Sense::click())
-                    .column(Column::initial(70.0))
-                    .column(Column::initial(65.0))
-                    .column(Column::initial(65.0))
-                    .column(Column::initial(160.0))
-                    .columns(Column::initial(80.0), 3)
-                    .column(Column::remainder().at_least(80.0))
-                    .header(theme::ROW_HEIGHT, |mut header| {
+                    .column(Column::initial(80.0))
+                    .column(Column::initial(100.0))
+                    .column(Column::initial(95.0))
+                    .column(Column::initial(200.0))
+                    .columns(Column::initial(112.0), 3)
+                    .column(Column::remainder().at_least(110.0))
+                    .header(theme::CONTROL_HEIGHT + 4.0, |mut header| {
                         for (label, sort) in columns {
                             header.col(|ui| {
-                                if ui.selectable_label(table.sort == sort, label).clicked() {
+                                let glyph = if table.sort == sort { if table.descending { Glyph::SortDescending } else { Glyph::SortAscending } } else { Glyph::Funnel };
+                                if icons::button(ui, glyph, label).on_hover_text("Clique para ordenar; clique novamente para inverter a ordem").clicked() {
                                     if table.sort == sort {
                                         table.descending = !table.descending;
                                     } else {
@@ -639,9 +664,6 @@ impl ExplorerApp {
                                 }
                             });
                         }
-                        header.col(|ui| {
-                            ui.strong("Avisos");
-                        });
                     })
                     .body(|body| {
                         body.rows(theme::ROW_HEIGHT, table.rows.len(), |mut row| {
@@ -735,23 +757,30 @@ impl eframe::App for ExplorerApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.events();
         let ctx = ui.ctx().clone();
-        self.file_picker(&ctx);
         if let Some(path) =
             ctx.input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf()))
         {
             self.load(&ctx, Some(path));
         }
-        egui::Frame::central_panel(ui.style()).show(ui,|ui|{
+        egui::Frame::central_panel(ui.style()).inner_margin(16).corner_radius(20).show(ui,|ui|{
             self.header(ui);
             if let Some(error)=self.state.error.clone(){ui.horizontal_wrapped(|ui|{ui.colored_label(ui.visuals().error_fg_color,&error);if icons::button(ui,Glyph::X,"Dispensar").clicked(){self.state.error=None;}});}
             if let Some(busy)=self.state.busy.clone(){ui.horizontal(|ui|{ui.spinner();ui.label(busy);if self.pending_load.is_some()&&!self.cancel_requested&&icons::button(ui,Glyph::X,"Cancelar leitura").clicked(){self.jobs.cancel_load();self.cancel_requested=true;self.state.busy=Some("Cancelamento solicitado; aguarde a leitura ou feche o diálogo aberto.".into());}});}
-            let content=egui::vec2(ui.available_width(),(ui.available_height()-58.0).max(80.0));
+            let content=egui::vec2(ui.available_width(),(ui.available_height()-30.0).max(80.0));
             ui.allocate_ui_with_layout(content,Layout::top_down(Align::Min),|ui|{
+                let key = egui::Id::new(format!("{:?}:{:?}:{}", self.state.view, self.state.tab, self.state.dark));
+                let opacity = self.transition.opacity(ui.ctx(), key);
+                ui.multiply_opacity(opacity);
                 if let Some(loaded)=self.state.loaded.clone(){match self.state.view{AppView::Explorer=>self.explorer(ui,&loaded),AppView::WorkDetail{work}=>self.detail(ui,&loaded,work)}}else{
-                    theme::card(ui,|ui|{ui.heading("Explore os trabalhos do seu FC2");ui.label("Abra um arquivo ou arraste-o para esta janela. A leitura preserva o original e utiliza o decoder existente.");ui.add_enabled_ui(self.state.busy.is_none(),|ui|{if icons::button(ui,Glyph::FolderOpen,"Selecionar arquivo FC2").clicked(){self.load(ui.ctx(),None);}});ui.small("Mapa inicia sem rede. Ative tiles nas configurações se desejar o fundo OpenStreetMap.");});
+                    theme::card(ui,|ui|{ui.heading("Explore os trabalhos do seu FC2");ui.label("Abra um arquivo ou arraste-o para esta janela. A leitura preserva o original e utiliza o decoder existente.");ui.add_enabled_ui(self.state.busy.is_none(),|ui|{if icons::button(ui,Glyph::FolderOpen,"Selecionar arquivo FC2").clicked(){self.load(ui.ctx(),None);}});ui.small("OpenStreetMap habilitado por padrão.");});
                 }
             });ui.separator();
-            ui.horizontal_wrapped(|ui|{ui.label(icons::text(Glyph::Info));ui.label(&self.state.status);});
+            ui.horizontal(|ui| {
+                ui.label(icons::text(Glyph::Info));
+                let width = (ui.available_width() - 180.0).max(40.0);
+                ui.add_sized([width, 18.0], egui::Label::new(egui::RichText::new(&self.state.status).size(12.0)).truncate()).on_hover_text(&self.state.status);
+                ui.small(format!("v{} · Rust · egui · Walkers", env!("CARGO_PKG_VERSION"))).on_hover_text("Dados preservados · exploração estrutural FC2");
+            });
         });
         if self.state.settings_open {
             self.settings(&ctx);

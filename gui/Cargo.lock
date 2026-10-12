@@ -1350,6 +1350,7 @@ dependencies = [
  "egui_extras",
  "egui_phosphor_icons",
  "fc2-rs",
+ "log",
  "rfd",
  "tempfile",
  "walkers",

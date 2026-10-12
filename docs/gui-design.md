@@ -3,7 +3,28 @@
 `gui/src/theme.rs` concentra cores, espaçamentos, tipografia, altura dos controles
 e arredondamento. `theme::apply(ctx, dark)` alterna os temas claro e escuro;
 `theme::card(ui, ...)` cria painéis com a mesma borda e preenchimento. Os temas
-usam superfícies neutras e um único destaque azul para seleção e foco.
+usam superfícies neutras e destaque verde discreto para foco e integridade
+estrutural. O tema escuro inicia por padrão: fundo grafite, cartões mais escuros,
+bordas suaves e abas ativas claras em cápsula, seguindo as referências visuais
+fornecidas pelo usuário. O tema claro permanece disponível no botão de sol/lua
+ao lado de **Info**, fora da janela informativa. O ícone indica o tema ativo;
+o tooltip e o rótulo de acessibilidade explicam a ação de alternância.
+
+O cabeçalho reúne marca e ações; o subtítulo aparece somente no explorador,
+que exibe arquivo, contagens e CRC em uma faixa compacta extraída do decoder,
+com quebra automática em janelas estreitas. A tela de trabalho possui cartão de
+identificação compacto (nome, ID, contagens e estado na mesma faixa, com quebra
+automática em janelas estreitas) e abas. Voltar fica no cabeçalho, evitando uma
+linha adicional de navegação. Transições de opacidade de 180 ms acompanham telas,
+abas e temas; o destaque das abas também é animado. O layout permanece estável
+e os controles continuam utilizáveis durante a animação.
+Em janelas compactas, o resumo selecionado aparece abaixo
+do mapa; em janelas maiores, ocupa o painel direito. O rodapé mantém o estado da
+operação e informa versão e tecnologias em uma única linha; mensagens extensas
+e o destino completo ficam disponíveis ao passar o mouse. Os marcados possuem
+seção fixa no topo, independente da busca. Cabeçalhos da tabela mostram ícones
+Phosphor de filtro/ordenação e indicam a direção ativa. Mapas e tabelas continuam mostrando
+dados reais; nenhuma coordenada ilustrativa das referências foi incorporada.
 
 `gui/src/icons.rs` é o catálogo de ícones. `install_fonts(ctx)` deve ser chamado
 uma vez na inicialização. A fonte Phosphor é incorporada pela dependência, sem

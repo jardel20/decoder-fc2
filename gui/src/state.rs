@@ -34,6 +34,7 @@ pub enum RecordSort {
     A,
     B,
     Total,
+    Warnings,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExportChoice {
@@ -133,6 +134,7 @@ impl TableState {
                 RecordSort::Total => left
                     .chlorophyll_total_tenths
                     .cmp(&right.chlorophyll_total_tenths),
+                RecordSort::Warnings => left.warnings.len().cmp(&right.warnings.len()),
             }
             .then_with(|| a.cmp(b));
             if self.descending {
@@ -156,6 +158,7 @@ pub struct State {
     pub tab: WorkTab,
     pub tables: BTreeMap<usize, TableState>,
     pub marked_works: BTreeSet<usize>,
+    pub marked_order: Vec<usize>,
     pub export_choice: ExportChoice,
     pub export_root: PathBuf,
     pub dark: bool,
@@ -163,7 +166,7 @@ pub struct State {
     pub busy: Option<String>,
     pub error: Option<String>,
     pub status: String,
-    work_cache: Option<(String, WorkSort, bool)>,
+    work_cache: Option<(String, WorkSort, bool, Vec<usize>)>,
     pub visible_works: Vec<usize>,
 }
 impl Default for State {
@@ -179,9 +182,10 @@ impl Default for State {
             tab: WorkTab::Measurements,
             tables: BTreeMap::new(),
             marked_works: BTreeSet::new(),
+            marked_order: Vec::new(),
             export_choice: ExportChoice::Xlsx,
             export_root: fc2_rs::paths::downloads_dir(),
-            dark: false,
+            dark: true,
             settings_open: false,
             busy: None,
             error: None,
@@ -200,6 +204,7 @@ impl State {
         self.tab = WorkTab::Measurements;
         self.tables.clear();
         self.marked_works.clear();
+        self.marked_order.clear();
         self.work_query.clear();
         self.work_cache = None;
         self.error = None;
@@ -209,10 +214,18 @@ impl State {
         self.refresh_works();
     }
     pub fn refresh_works(&mut self) {
+        self.marked_order
+            .retain(|index| self.marked_works.contains(index));
+        for index in &self.marked_works {
+            if !self.marked_order.contains(index) {
+                self.marked_order.push(*index);
+            }
+        }
         let signature = (
             self.work_query.clone(),
             self.work_sort,
             self.work_descending,
+            self.marked_order.clone(),
         );
         if self.work_cache.as_ref() == Some(&signature) {
             return;
@@ -227,10 +240,11 @@ impl State {
             .works
             .iter()
             .enumerate()
-            .filter(|(_, w)| {
-                format!("{} {} {}", w.number, w.display_name, w.directory)
-                    .to_lowercase()
-                    .contains(&query)
+            .filter(|(index, w)| {
+                !self.marked_works.contains(index)
+                    && format!("{} {} {}", w.number, w.display_name, w.directory)
+                        .to_lowercase()
+                        .contains(&query)
             })
             .map(|(index, _)| index)
             .collect();
@@ -255,7 +269,47 @@ impl State {
                 order
             }
         });
+        self.visible_works.splice(
+            0..0,
+            self.marked_order
+                .iter()
+                .copied()
+                .filter(|index| *index < loaded.dataset.works.len()),
+        );
         self.work_cache = Some(signature);
+    }
+    pub fn set_marked(&mut self, index: usize, marked: bool) {
+        if !self
+            .loaded
+            .as_ref()
+            .is_some_and(|loaded| index < loaded.dataset.works.len())
+        {
+            return;
+        }
+        if marked {
+            if self.marked_works.insert(index) {
+                self.marked_order.insert(0, index);
+            }
+        } else {
+            self.marked_works.remove(&index);
+            self.marked_order.retain(|item| *item != index);
+        }
+        self.work_cache = None;
+    }
+    pub fn mark_all(&mut self, marked: bool) {
+        if marked {
+            let count = self
+                .loaded
+                .as_ref()
+                .map_or(0, |loaded| loaded.dataset.works.len());
+            for index in 0..count {
+                self.set_marked(index, true);
+            }
+        } else {
+            self.marked_works.clear();
+            self.marked_order.clear();
+            self.work_cache = None;
+        }
     }
     pub fn select_work(&mut self, work: usize) {
         if self

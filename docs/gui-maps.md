@@ -19,11 +19,30 @@ trata travessia do antimeridiano. Os números nunca são arredondados no núcleo
 
 ## Uso online e cache
 
-O início é local e não cria um cliente HTTP. O controle **Tiles OpenStreetMap
-online** habilita explicitamente consultas; a região visível pode ser
+Ao passar o cursor sobre um marcador, um tooltip ancorado ao cursor apresenta
+os dados reais do registro: ID, trabalho, grupo, ponto, data/hora, índices
+instrumentais, latitude/longitude e avisos. Campos ausentes mostram **—**. Em
+sobreposições, o registro selecionado tem prioridade, seguido do trabalho
+selecionado; clicar alterna os registros e atualiza o tooltip correspondente.
+O antigo tooltip ancorado à área inteira do mapa foi removido.
+
+A área de desenho é alocada e recortada explicitamente no retângulo disponível.
+Os três painéis do explorador usam a mesma altura, preservando margens e bordas
+inferiores; o mapa não cresce para fora do painel.
+
+Clicar num trabalho, abri-lo ou clicar em sua aba **Mapa** centraliza a visualização
+no centro dos limites dos pontos representáveis desse trabalho e aplica zoom
+**17.0**. Se não houver coordenadas representáveis, centro e zoom anteriores são
+preservados. O zoom fixo não garante que pontos muito dispersos apareçam todos
+simultaneamente; **Enquadrar pontos** continua disponível para isso.
+
+OpenStreetMap inicia habilitado por solicitação do usuário. O cliente HTTP é
+criado ao renderizar o mapa, com ou sem coordenadas. A aplicação não oferece
+controle para desativar o mapa, conforme solicitado pelo usuário; a região visível pode ser
 inferida pelos pedidos ao provedor. Não são enviados FC2, planilhas, índices
 ou identificadores de registros. Sem tiles, continuam disponíveis deslocamento,
-zoom e seleção de pontos. A ausência de pontos tem estado vazio explícito.
+zoom e seleção de pontos. Na ausência de coordenadas, o mapa mostra uma visão
+geral sem marcadores e uma indicação explícita; nenhum ponto é inventado.
 
 O cliente identifica-se como `FC2Explorer/<versão>`. Walkers utiliza sua
 implementação oficial de cache HTTP, respeitando cabeçalhos do servidor:

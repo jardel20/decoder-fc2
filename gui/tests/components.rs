@@ -12,6 +12,7 @@ fn both_themes_render_embedded_icons_cards_and_empty_offline_map() {
     let ctx = egui::Context::default();
     icons::install_fonts(&ctx);
     let mut map = MapPane::new(&ctx);
+    map.set_online(false);
     for dark in [false, true] {
         theme::apply(&ctx, dark);
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
@@ -19,7 +20,7 @@ fn both_themes_render_embedded_icons_cards_and_empty_offline_map() {
                 ui.label(icons::text(Glyph::FileBinary));
                 let _ = icons::button(ui, Glyph::FolderOpen, "Abrir FC2");
             });
-            assert!(map.show(ui, &[], None, None).is_none());
+            assert!(map.show(ui, &[], None, None, None).is_none());
         });
         // This headless test has no GPU painter to upload or free textures.
         // Explicitly discard the deltas as required by epaint before assertions.
@@ -42,5 +43,48 @@ fn in_app_file_and_export_pickers_render_without_desktop_portals() {
         });
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty());
+    }
+}
+
+#[test]
+fn explorer_columns_keep_aligned_bottoms_when_map_fills_its_panel() {
+    let ctx = egui::Context::default();
+    icons::install_fonts(&ctx);
+    theme::apply(&ctx, true);
+    let mut map = MapPane::new(&ctx);
+    map.set_online(false);
+    let mut rectangles = Vec::new();
+    let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+        ui.allocate_ui_with_layout(
+            egui::vec2(900.0, 400.0),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                ui.horizontal_top(|ui| {
+                    for index in 0..3 {
+                        let response = ui.allocate_ui_with_layout(
+                            egui::vec2(240.0, 350.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                theme::panel(ui, |ui| {
+                                    if index == 1 {
+                                        let _ = map.show(ui, &[], None, None, None);
+                                    } else {
+                                        ui.label("Painel");
+                                    }
+                                });
+                            },
+                        );
+                        rectangles.push(response.response.rect);
+                    }
+                });
+            },
+        );
+    });
+    output.textures_delta.clear();
+    assert_eq!(rectangles.len(), 3);
+    for rectangle in &rectangles {
+        assert!((rectangle.top() - rectangles[0].top()).abs() <= 1.0);
+        assert!((rectangle.bottom() - rectangles[0].bottom()).abs() <= 1.0);
+        assert!(rectangle.height() <= 351.0);
     }
 }
