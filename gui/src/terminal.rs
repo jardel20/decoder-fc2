@@ -8,7 +8,7 @@ pub fn run(path: Option<&Path>) -> Result<(), String> {
 }
 
 pub fn launch(path: Option<&Path>) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let exe = launcher_executable(std::env::var_os("APPIMAGE"))?;
     #[cfg(target_os = "windows")]
     {
         // The child allocates its own console, without requiring PowerShell or
@@ -51,6 +51,44 @@ pub fn launch(path: Option<&Path>) -> Result<(), String> {
             "Nenhum terminal compatível foi encontrado. Execute fc2-explorer --tui em um terminal."
                 .into(),
         )
+    }
+}
+
+fn launcher_executable(appimage: Option<std::ffi::OsString>) -> Result<std::path::PathBuf, String> {
+    #[cfg(target_os = "linux")]
+    if let Some(path) = appimage.map(std::path::PathBuf::from)
+        && path.is_absolute()
+        && path.is_file()
+    {
+        // Start the outer image again so the TUI owns its mount even if the GUI exits.
+        return Ok(path);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = appimage;
+    std::env::current_exe().map_err(|error| error.to_string())
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+    #[test]
+    fn tui_relaunches_outer_appimage_and_falls_back_when_it_is_unavailable() {
+        let directory = tempfile::tempdir().unwrap();
+        let image = directory.path().join("FC2 Explorer.AppImage");
+        std::fs::write(&image, b"synthetic launcher path").unwrap();
+        assert_eq!(
+            launcher_executable(Some(image.clone().into_os_string())).unwrap(),
+            image
+        );
+        let missing = directory.path().join("missing.AppImage");
+        assert_eq!(
+            launcher_executable(Some(missing.into_os_string())).unwrap(),
+            std::env::current_exe().unwrap()
+        );
+        assert_eq!(
+            launcher_executable(None).unwrap(),
+            std::env::current_exe().unwrap()
+        );
     }
 }
 

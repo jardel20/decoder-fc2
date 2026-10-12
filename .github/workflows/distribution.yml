@@ -1,0 +1,47 @@
+name: Portable distribution
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libgl1-mesa-dev libdbus-1-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev desktop-file-utils ripgrep
+      - name: Rust toolchain
+        run: rustup update stable && rustup default stable && rustup target add x86_64-unknown-linux-gnu
+      - name: Core tests
+        run: cargo test --locked
+      - name: GUI tests
+        run: cargo test --manifest-path gui/Cargo.toml --locked
+      - name: AppImage
+        run: bash scripts/build-appimage.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FC2-Explorer-Linux-AppImage
+          path: |
+            local/appimage/FC2-Explorer-x86_64.AppImage
+            local/appimage/FC2-Explorer-x86_64.AppImage.sha256
+          if-no-files-found: error
+  windows-portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: rustup update stable; rustup default stable; rustup target add x86_64-pc-windows-msvc
+      - name: Core tests
+        run: cargo test --locked --target x86_64-pc-windows-msvc
+      - name: GUI tests
+        run: cargo test --manifest-path gui/Cargo.toml --locked --target x86_64-pc-windows-msvc
+      - name: Portable executable
+        shell: powershell
+        run: .\scripts\build-portable-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FC2-Explorer-Windows-portable
+          path: local/portable-windows/fc2-explorer.exe
+          if-no-files-found: error

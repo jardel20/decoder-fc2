@@ -32,9 +32,15 @@ Requer Rust 1.95 ou posterior. O executável é `gui/target/release/fc2-explorer
 OpenGL e backend X11/Wayland; os diálogos usam o portal desktop do sistema.
 Os ícones e fontes estão incorporados, sem assets externos.
 
-**Estado de validação:** a camada de dados e navegação foi testada. A compilação
-e execução da janela permanecem pendentes neste ambiente, que não consegue
-baixar as dependências gráficas. Isso não certifica portabilidade da GUI.
+Para distribuir a GUI/TUI em um arquivo, use `scripts/build-portable-windows.ps1`
+no Windows ou `scripts/build-appimage.sh` em Ubuntu 22.04 x86_64. O workflow
+**Portable distribution** gera ambos no GitHub Actions. Consulte
+[docs/distribution.md](docs/distribution.md) para pré-requisitos e limites de
+compatibilidade. Os pacotes finais ainda precisam de validação em máquinas de destino.
+
+**Estado de validação:** a compilação Linux e os testes automatizados da GUI
+foram executados. Isso não certifica portabilidade da GUI ou execução de pacotes
+Windows/AppImage; a geração desses artefatos ainda depende do ambiente de build.
 Instruções, dependências, trabalho dos subagentes e critérios pendentes estão em
 [docs/gui.md](docs/gui.md).
 

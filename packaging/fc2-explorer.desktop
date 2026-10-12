@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=FC2 Explorer
+Comment=Explore e exporte trabalhos de arquivos Falker FC2
+Exec=fc2-explorer %f
+Icon=fc2-explorer
+Terminal=false
+Categories=Science;Utility;
+StartupNotify=true
