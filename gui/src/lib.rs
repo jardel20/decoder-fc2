@@ -1,4 +1,5 @@
 pub mod app;
+pub mod charts;
 pub mod file_picker;
 pub mod icons;
 pub mod maps;
@@ -8,3 +9,4 @@ pub mod state;
 pub mod tasks;
 pub mod terminal;
 pub mod theme;
+pub mod warnings;

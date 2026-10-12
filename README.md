@@ -155,11 +155,13 @@ cópia integral, preservando inclusive regiões ainda não interpretadas.
 
 ## Como fica o XLSX
 
-O layout conserva as colunas do exemplo em B8:J8: Medição, Ponto, Hora,
+As abas de dados começam diretamente com os cabeçalhos em A1:I1 e as
+medições na linha 2: Medição, Ponto, Hora,
 Data, Latitude, Longitude, Clorofila A, Clorofila B e Clorofila Total.
 Um trabalho com um grupo usa a aba `Worksheet`; vários grupos usam abas
 `Medidas 1`, `Medidas 2`, etc. Pontos de grupos diferentes não são misturados.
-O cabeçalho identifica FC2-RS como o programa que gerou o arquivo.
+Uma aba adicional `Info` reúne as informações do programa, trabalho,
+geração, ponto de referência quando conhecido, SHA-256 da fonte e validação.
 
 Por padrão, os pontos são ordenados lexicograficamente, como na referência
 (`1, 10, 11, …, 2`); a ordem original dentro de cada ponto é preservada.

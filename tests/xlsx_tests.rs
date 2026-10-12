@@ -71,17 +71,21 @@ fn xlsx_has_example_layout_and_preserves_complete_coordinates_and_independent_to
     let bytes = xlsx::render_work(&metadata(), &[row()]).unwrap();
     assert_eq!(bytes, xlsx::render_work(&metadata(), &[row()]).unwrap());
     let parts = unpack(&bytes);
-    assert_eq!(parts.len(), 7);
+    assert_eq!(parts.len(), 8);
     let sheet = xml(&parts, "xl/worksheets/sheet1.xml");
-    assert!(sheet.contains("TRABALHO A&amp;B"));
-    assert!(sheet.contains("r=\"B8\""));
+    let info = xml(&parts, "xl/worksheets/info.xml");
+    assert!(info.contains("TRABALHO A&amp;B"));
+    assert!(!sheet.contains("TRABALHO A&amp;B"));
+    assert!(sheet.contains("r=\"A1\""));
+    assert!(sheet.contains("r=\"A2\" s=\"0\"><v>7</v>"));
+    assert!(xml(&parts, "xl/workbook.xml").contains("name=\"Info\""));
     assert!(sheet.contains("Clorofila Total"));
-    assert!(sheet.contains("r=\"F9\" s=\"1\"><v>-15.25</v>"));
-    assert!(sheet.contains("r=\"J9\" s=\"2\"><v>28.9</v>"));
+    assert!(sheet.contains("r=\"E2\" s=\"1\"><v>-15.25</v>"));
+    assert!(sheet.contains("r=\"I2\" s=\"2\"><v>28.9</v>"));
     assert!(sheet.contains("12-03-2024"));
     assert!(!sheet.contains("<f>"));
     assert!(!sheet.contains("Falker Leaf"));
-    assert!(!sheet.contains("r=\"B7\""));
+    assert!(!info.contains("r=\"B7\""));
     assert!(xml(&parts, "xl/styles.xml").contains("formatCode=\"0.000000\""));
     assert!(xml(&parts, "docProps/custom.xml").contains(&"a".repeat(64)));
 }
@@ -94,12 +98,12 @@ fn missing_fields_are_blank_and_real_zero_is_preserved() {
     row.longitude = Some(0.0);
     let parts = unpack(&xlsx::render_work(&metadata(), &[row]).unwrap());
     let sheet = xml(&parts, "xl/worksheets/sheet1.xml");
-    for cell in ["D9", "E9", "F9"] {
+    for cell in ["C2", "D2", "E2"] {
         assert!(!sheet.contains(&format!("r=\"{cell}\"")));
     }
-    assert!(sheet.contains("r=\"G9\" s=\"1\"><v>0</v>"));
+    assert!(sheet.contains("r=\"F2\" s=\"1\"><v>0</v>"));
     let parts = unpack(&xlsx::render_work(&metadata(), &[]).unwrap());
-    assert!(xml(&parts, "xl/worksheets/sheet1.xml").contains("dimension ref=\"A1:J8\""));
+    assert!(xml(&parts, "xl/worksheets/sheet1.xml").contains("dimension ref=\"A1:I1\""));
 }
 #[test]
 fn bad_coordinates_xml_and_zip_paths_are_rejected() {
@@ -153,8 +157,11 @@ fn separate_measurement_groups_keep_point_ids_without_merging() {
     let workbook = xml(&parts, "xl/workbook.xml");
     assert!(workbook.contains("name=\"Medidas 1\""));
     assert!(workbook.contains("name=\"Medidas 2\""));
-    assert!(xml(&parts, "xl/worksheets/sheet1.xml").contains("r=\"B9\" s=\"0\"><v>7</v>"));
-    assert!(xml(&parts, "xl/worksheets/sheet2.xml").contains("r=\"B9\" s=\"0\"><v>8</v>"));
+    assert!(xml(&parts, "xl/worksheets/sheet1.xml").contains("r=\"A2\" s=\"0\"><v>7</v>"));
+    assert!(xml(&parts, "xl/worksheets/sheet2.xml").contains("r=\"A2\" s=\"0\"><v>8</v>"));
+    assert!(workbook.contains("name=\"Info\" sheetId=\"3\" r:id=\"rId3\""));
+    assert!(xml(&parts, "xl/_rels/workbook.xml.rels").contains("Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/info.xml\""));
+    assert!(xml(&parts, "[Content_Types].xml").contains("/xl/worksheets/info.xml"));
     assert!(xml(&parts, "xl/_rels/workbook.xml.rels").contains("Target=\"worksheets/sheet2.xml\""));
     assert!(xml(&parts, "[Content_Types].xml").contains("/xl/worksheets/sheet2.xml"));
     let parts = unpack(&xlsx::render_sheets(&metadata(), &sheets[..1]).unwrap());
@@ -162,5 +169,7 @@ fn separate_measurement_groups_keep_point_ids_without_merging() {
     assert!(xlsx::render_sheets(&metadata(), &[]).is_err());
     let mut duplicate = sheets.clone();
     duplicate[1].name = "medidas 1".into();
+    assert!(xlsx::render_sheets(&metadata(), &duplicate).is_err());
+    duplicate[1].name = "INFO".into();
     assert!(xlsx::render_sheets(&metadata(), &duplicate).is_err());
 }

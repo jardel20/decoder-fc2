@@ -303,7 +303,11 @@ fn point_details(ui: &mut egui::Ui, loaded: Option<&LoadedDataset>, point: &GeoP
             .max_height(120.0)
             .show(ui, |ui| {
                 for warning in &record.warnings {
-                    ui.colored_label(ui.visuals().warn_fg_color, warning);
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        crate::warnings::message(warning).as_ref(),
+                    )
+                    .on_hover_text(warning);
                 }
             });
     }

@@ -15,6 +15,7 @@ pub enum AppView {
 pub enum WorkTab {
     Measurements,
     Map,
+    Charts,
     Metadata,
     Export,
 }

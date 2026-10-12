@@ -447,11 +447,11 @@ fn missing_calendar_and_gps_produce_blank_xlsx_cells_without_merging_groups() {
     let parts = unpack_stored(&std::fs::read(output.join("1-GROUPS.xlsx")).unwrap());
     let first = String::from_utf8(parts["xl/worksheets/sheet1.xml"].clone()).unwrap();
     let second = String::from_utf8(parts["xl/worksheets/sheet2.xml"].clone()).unwrap();
-    for column in ["D9", "E9", "F9", "G9"] {
+    for column in ["C2", "D2", "E2", "F2"] {
         assert!(!first.contains(&format!("r=\"{column}\"")));
     }
-    assert!(first.contains("r=\"B9\""));
-    assert!(first.contains("r=\"J9\""));
+    assert!(first.contains("r=\"A2\""));
+    assert!(first.contains("r=\"I2\""));
     assert!(second.contains("12-03-2024"));
     assert!(second.contains("-12.25"));
     let workbook = String::from_utf8(parts["xl/workbook.xml"].clone()).unwrap();

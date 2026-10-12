@@ -1,4 +1,4 @@
-//! Deterministic OOXML export matching the inspected Leaf table layout.
+//! Deterministic OOXML export with group tables and a separate Info worksheet.
 //! No proprietary workbook or experimental data is embedded in this module.
 use super::{Export, ensure_validated};
 use crate::{
@@ -91,7 +91,7 @@ pub fn render_sheets(metadata: &WorkMetadata, sheets: &[WorkbookSheet]) -> Resul
             "XLSX requires 1..1000 measurement sheets".into(),
         ));
     }
-    let mut names = std::collections::HashSet::new();
+    let mut names = std::collections::HashSet::from(["info".to_string()]);
     let mut entries = work_parts(metadata, &sheets[0].rows)?;
     let mut workbook = format!(
         "{XML}<workbook xmlns=\"{MAIN}\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>"
@@ -99,7 +99,7 @@ pub fn render_sheets(metadata: &WorkMetadata, sheets: &[WorkbookSheet]) -> Resul
     let mut relationships = format!(
         "{XML}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
     );
-    let mut content = CONTENT_TYPES.replace("</Types>", "");
+    let mut content = content_types().replace("</Types>", "");
     for (index, sheet) in sheets.iter().enumerate() {
         let name = if sheets.len() == 1 {
             "Worksheet"
@@ -135,9 +135,15 @@ pub fn render_sheets(metadata: &WorkMetadata, sheets: &[WorkbookSheet]) -> Resul
             write!(content,"<Override PartName=\"/xl/worksheets/sheet{id}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>").unwrap();
         }
     }
-    workbook.push_str("</sheets></workbook>");
+    let info_id = sheets.len() + 1;
+    write!(
+        workbook,
+        "<sheet name=\"Info\" sheetId=\"{info_id}\" r:id=\"rId{info_id}\"/></sheets></workbook>"
+    )
+    .unwrap();
+    write!(relationships,"<Relationship Id=\"rId{info_id}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/info.xml\"/>").unwrap();
     content.push_str("</Types>");
-    write!(relationships,"<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/></Relationships>",sheets.len()+1).unwrap();
+    write!(relationships,"<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/></Relationships>",info_id+1).unwrap();
     for (name, bytes) in &mut entries {
         match name.as_str() {
             "xl/workbook.xml" => *bytes = workbook.as_bytes().to_vec(),
@@ -157,7 +163,7 @@ fn work_parts(metadata: &WorkMetadata, records: &[WorkbookRow]) -> Result<Vec<(S
             .bytes()
             .all(|b| b.is_ascii_hexdigit())
         || metadata.validation.is_empty()
-        || records.len() > 1_048_568
+        || records.len() > 1_048_575
         || records.iter().any(|r| {
             r.latitude.is_some_and(|v| !v.is_finite())
                 || r.longitude.is_some_and(|v| !v.is_finite())
@@ -167,9 +173,8 @@ fn work_parts(metadata: &WorkMetadata, records: &[WorkbookRow]) -> Result<Vec<(S
             "XLSX requires one accepted work and finite known coordinates".into(),
         ));
     }
-    let mut sheet = format!(
-        "{XML}<worksheet xmlns=\"{MAIN}\"><dimension ref=\"A1:J{}\"/><sheetViews><sheetView workbookViewId=\"0\" showGridLines=\"1\"/></sheetViews><sheetFormatPr defaultRowHeight=\"14.4\"/><cols><col min=\"1\" max=\"1\" width=\"29\" customWidth=\"1\"/><col min=\"2\" max=\"2\" width=\"15\" customWidth=\"1\"/><col min=\"3\" max=\"3\" width=\"10\" customWidth=\"1\"/><col min=\"4\" max=\"4\" width=\"13\" customWidth=\"1\"/><col min=\"5\" max=\"5\" width=\"14\" customWidth=\"1\"/><col min=\"6\" max=\"9\" width=\"16\" customWidth=\"1\"/><col min=\"10\" max=\"10\" width=\"20\" customWidth=\"1\"/></cols><sheetData>",
-        records.len() + 8
+    let mut info = format!(
+        "{XML}<worksheet xmlns=\"{MAIN}\"><dimension ref=\"A1:B9\"/><sheetViews><sheetView workbookViewId=\"0\"/></sheetViews><sheetFormatPr defaultRowHeight=\"14.4\"/><cols><col min=\"1\" max=\"1\" width=\"29\" customWidth=\"1\"/><col min=\"2\" max=\"2\" width=\"78\" customWidth=\"1\"/></cols><sheetData>"
     );
     for (row, label, value) in [
         (1, "FC2-RS", None),
@@ -186,20 +191,34 @@ fn work_parts(metadata: &WorkMetadata, records: &[WorkbookRow]) -> Result<Vec<(S
         ),
         (6, "Trabalho:", Some(metadata.work.clone())),
     ] {
-        write!(sheet, "<row r=\"{row}\">").unwrap();
-        text(&mut sheet, &format!("A{row}"), label)?;
+        write!(info, "<row r=\"{row}\">").unwrap();
+        text(&mut info, &format!("A{row}"), label)?;
         if let Some(value) = value {
-            text(&mut sheet, &format!("B{row}"), &value)?;
+            text(&mut info, &format!("B{row}"), &value)?;
         }
-        sheet.push_str("</row>");
+        info.push_str("</row>");
     }
-    sheet.push_str("<row r=\"7\">");
-    text(&mut sheet, "A7", "Ponto de Referência:")?;
+    info.push_str("<row r=\"7\">");
+    text(&mut info, "A7", "Ponto de Referência:")?;
     if let Some(value) = metadata.reference_point {
-        number(&mut sheet, "B7", 0, &value.to_string());
+        number(&mut info, "B7", 0, &value.to_string());
     }
-    sheet.push_str("</row><row r=\"8\">");
-    for (column, label) in ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
+    info.push_str("</row>");
+    for (row, label, value) in [
+        (8, "SHA-256 do FC2:", &metadata.source_sha256),
+        (9, "Validação:", &metadata.validation),
+    ] {
+        write!(info, "<row r=\"{row}\">").unwrap();
+        text(&mut info, &format!("A{row}"), label)?;
+        text(&mut info, &format!("B{row}"), value)?;
+        info.push_str("</row>");
+    }
+    info.push_str("</sheetData></worksheet>");
+    let mut sheet = format!(
+        "{XML}<worksheet xmlns=\"{MAIN}\"><dimension ref=\"A1:I{}\"/><sheetViews><sheetView workbookViewId=\"0\" showGridLines=\"1\"/></sheetViews><sheetFormatPr defaultRowHeight=\"14.4\"/><cols><col min=\"1\" max=\"1\" width=\"15\" customWidth=\"1\"/><col min=\"2\" max=\"2\" width=\"10\" customWidth=\"1\"/><col min=\"3\" max=\"3\" width=\"13\" customWidth=\"1\"/><col min=\"4\" max=\"4\" width=\"14\" customWidth=\"1\"/><col min=\"5\" max=\"8\" width=\"16\" customWidth=\"1\"/><col min=\"9\" max=\"9\" width=\"20\" customWidth=\"1\"/></cols><sheetData><row r=\"1\">",
+        records.len() + 1
+    );
+    for (column, label) in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
         .into_iter()
         .zip([
             "Medição",
@@ -213,16 +232,16 @@ fn work_parts(metadata: &WorkMetadata, records: &[WorkbookRow]) -> Result<Vec<(S
             "Clorofila Total",
         ])
     {
-        text(&mut sheet, &format!("{column}8"), label)?;
+        text(&mut sheet, &format!("{column}1"), label)?;
     }
     sheet.push_str("</row>");
     for (index, r) in records.iter().enumerate() {
-        let row = index + 9;
+        let row = index + 2;
         write!(sheet, "<row r=\"{row}\">").unwrap();
-        number(&mut sheet, &format!("B{row}"), 0, &r.id.to_string());
-        number(&mut sheet, &format!("C{row}"), 0, &r.point.to_string());
+        number(&mut sheet, &format!("A{row}"), 0, &r.id.to_string());
+        number(&mut sheet, &format!("B{row}"), 0, &r.point.to_string());
         if let Some(time) = &r.time {
-            text(&mut sheet, &format!("D{row}"), time)?;
+            text(&mut sheet, &format!("C{row}"), time)?;
         }
         if let Some(date) = &r.date {
             let parts: Vec<_> = date.split('-').collect();
@@ -238,20 +257,20 @@ fn work_parts(metadata: &WorkMetadata, records: &[WorkbookRow]) -> Result<Vec<(S
             }
             text(
                 &mut sheet,
-                &format!("E{row}"),
+                &format!("D{row}"),
                 &format!("{}-{}-{}", parts[2], parts[1], parts[0]),
             )?;
         }
         if let Some(value) = r.latitude {
-            number(&mut sheet, &format!("F{row}"), 1, &value.to_string());
+            number(&mut sheet, &format!("E{row}"), 1, &value.to_string());
         }
         if let Some(value) = r.longitude {
-            number(&mut sheet, &format!("G{row}"), 1, &value.to_string());
+            number(&mut sheet, &format!("F{row}"), 1, &value.to_string());
         }
         for (column, value) in [
-            ('H', r.chlorophyll_a_tenths),
-            ('I', r.chlorophyll_b_tenths),
-            ('J', r.chlorophyll_total_tenths),
+            ('G', r.chlorophyll_a_tenths),
+            ('H', r.chlorophyll_b_tenths),
+            ('I', r.chlorophyll_total_tenths),
         ] {
             number(
                 &mut sheet,
@@ -283,12 +302,13 @@ fn work_parts(metadata: &WorkMetadata, records: &[WorkbookRow]) -> Result<Vec<(S
     }
     custom.push_str("</Properties>");
     let entries = [
-        ("[Content_Types].xml", CONTENT_TYPES.into()),
+        ("[Content_Types].xml", content_types()),
         ("_rels/.rels", RELATIONSHIPS.into()),
         ("xl/workbook.xml", WORKBOOK.into()),
         ("xl/_rels/workbook.xml.rels", WORKBOOK_RELS.into()),
         ("xl/styles.xml", STYLES.into()),
         ("xl/worksheets/sheet1.xml", sheet),
+        ("xl/worksheets/info.xml", info),
         ("docProps/custom.xml", custom),
     ]
     .map(|(name, value): (&str, String)| (name.to_string(), value.into_bytes()));
@@ -416,6 +436,9 @@ pub fn archive_files(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
 
 const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/custom.xml" ContentType="application/vnd.openxmlformats-officedocument.custom-properties+xml"/></Types>"#;
 const RELATIONSHIPS: &str = r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom-properties" Target="docProps/custom.xml"/></Relationships>"#;
-const WORKBOOK: &str = r#"<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Worksheet" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
-const WORKBOOK_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"#;
+fn content_types() -> String {
+    CONTENT_TYPES.replace("</Types>", "<Override PartName=\"/xl/worksheets/info.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/></Types>")
+}
+const WORKBOOK: &str = r#"<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Worksheet" sheetId="1" r:id="rId1"/><sheet name="Info" sheetId="2" r:id="rId2"/></sheets></workbook>"#;
+const WORKBOOK_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/info.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"#;
 const STYLES: &str = r#"<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="0.000000"/><numFmt numFmtId="165" formatCode="0.0"/></numFmts><fonts count="1"><font><sz val="11"/><color rgb="FF000000"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf xfId="0" numFmtId="0" fontId="0" fillId="0" borderId="0"/><xf xfId="0" numFmtId="164" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf xfId="0" numFmtId="165" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>"#;

@@ -22,6 +22,7 @@ pub struct ExplorerApp {
     points_work: Option<usize>,
     transition: theme::Transition,
     marked_list_revision: Vec<usize>,
+    charts: crate::charts::ChartPane,
 }
 impl ExplorerApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<PathBuf>) -> Self {
@@ -38,6 +39,7 @@ impl ExplorerApp {
             points_work: None,
             transition: theme::Transition::default(),
             marked_list_revision: Vec::new(),
+            charts: crate::charts::ChartPane::default(),
         };
         if let Some(path) = initial {
             app.load(&cc.egui_ctx, Some(path));
@@ -556,6 +558,7 @@ impl ExplorerApp {
             for (tab, _glyph, label) in [
                 (WorkTab::Measurements, Glyph::Table, "Medições"),
                 (WorkTab::Map, Glyph::MapTrifold, "Mapa"),
+                (WorkTab::Charts, Glyph::Table, "Gráficos"),
                 (WorkTab::Metadata, Glyph::Info, "Metadados"),
                 (WorkTab::Export, Glyph::Export, "Exportação"),
             ] {
@@ -588,6 +591,7 @@ impl ExplorerApp {
                 }
             }
             WorkTab::Metadata => metadata(ui, loaded, work_index),
+            WorkTab::Charts => self.charts.show(ui, loaded, work_index),
             WorkTab::Export => self.export_view(ui, loaded, work_index),
         }
     }
@@ -713,8 +717,11 @@ impl ExplorerApp {
                                 });
                             }
                             row.col(|ui| {
-                                ui.label(record.warnings.len().to_string())
-                                    .on_hover_text(record.warnings.join("\n"));
+                                ui.label(record.warnings.len().to_string());
+                                if !record.warnings.is_empty() {
+                                    ui.interact(ui.max_rect(), ui.id().with("warning-cell"), Sense::hover())
+                                        .on_hover_ui_at_pointer(|ui| crate::warnings::tooltip(ui, record.id, &record.warnings));
+                                }
                             });
                             if row.response().clicked() {
                                 selected = Some(key);
@@ -873,7 +880,8 @@ fn record_inspector(ui: &mut egui::Ui, record: &fc2_rs::work_records::WorkMeasur
     ui.monospace(&record.raw_hex);
     ui.monospace(format!("SHA-256: {}", record.raw_sha256));
     for warning in &record.warnings {
-        ui.label(warning);
+        ui.label(crate::warnings::message(warning).as_ref())
+            .on_hover_text(warning);
     }
 }
 fn metadata(ui: &mut egui::Ui, loaded: &LoadedDataset, index: usize) {
