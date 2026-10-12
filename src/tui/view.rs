@@ -153,6 +153,13 @@ fn warning(lines: &mut Vec<Line>, text: impl Into<String>) {
     lines.push(Line::styled(text, Tone::Warning));
 }
 fn context_keys(app: &App, width: usize) -> &'static str {
+    if app.destination.is_some() {
+        return if width < 65 {
+            " Enter Pasta · s Selecionar · Esc Cancelar"
+        } else {
+            " Enter Entrar · s Selecionar pasta · D Downloads · h Início · Esc Cancelar"
+        };
+    }
     if app.action_menu.is_some() {
         return " ↑↓ selecionar · ações indisponíveis explicam o motivo";
     }
@@ -193,7 +200,7 @@ pub fn render(app: &App, width: u16, height: u16) -> String {
     let mut frame = Vec::new();
     frame.push(Line::styled(
         format!(
-            " FC2-RS · {} · {} marcados · {}",
+            " FC2-RS │ {} · {} marcados │ {}",
             app.export_mode_label()
                 .split_whitespace()
                 .next()
@@ -201,6 +208,8 @@ pub fn render(app: &App, width: u16, height: u16) -> String {
             app.marked_works.len(),
             if app.action_menu.is_some() {
                 "Ações"
+            } else if app.destination.is_some() {
+                "Destino de exportação"
             } else {
                 title(&app.screen)
             }
@@ -213,13 +222,54 @@ pub fn render(app: &App, width: u16, height: u16) -> String {
     let file = app
         .file
         .as_ref()
-        .map(|f| f.path.display().to_string())
+        .map(|f| {
+            let name = f.path.file_name().unwrap_or_default().to_string_lossy();
+            match f.path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                Some(parent) => format!("{name}  ·  {}", parent.display()),
+                None => name.into_owned(),
+            }
+        })
         .unwrap_or_else(|| "Nenhum FC2 aberto · o para abrir um arquivo".into());
     if height >= 5 {
-        frame.push(Line::styled(format!(" {file}"), Tone::Dim));
+        frame.push(Line::styled(format!(" Arquivo  {file}"), Tone::Dim));
+    }
+    if height >= 12 {
+        let summary = app
+            .dataset()
+            .map(|dataset| {
+                format!(
+                    "{} trabalhos · {} medições · {} grupos",
+                    dataset.works.len(),
+                    dataset
+                        .works
+                        .iter()
+                        .map(|w| w.record_count())
+                        .sum::<usize>(),
+                    dataset.works.iter().map(|w| w.groups.len()).sum::<usize>()
+                )
+            })
+            .unwrap_or_else(|| "Selecione um FC2 para inspecionar e exportar".into());
+        frame.push(Line::styled(
+            format!(" Dados    {summary}  │  v{}", env!("CARGO_PKG_VERSION")),
+            Tone::Normal,
+        ));
+        frame.push(Line::styled(
+            format!(
+                " Destino  {}",
+                if app.destination.is_some() {
+                    &app.browser.directory
+                } else {
+                    &app.export_root
+                }
+                .display()
+            ),
+            Tone::Dim,
+        ));
+        frame.push(Line::styled("─".repeat(width), Tone::Dim));
     }
     let show_error = height >= 6 && app.prompt.as_ref().is_some_and(|p| p.error.is_some());
-    let footer_count = if height >= 9 { 3 } else { 2 } + usize::from(show_error);
+    let footer_count =
+        if height >= 9 { 3 } else { 2 } + usize::from(show_error) + usize::from(height >= 12);
     let content_height = height.saturating_sub(frame.len() + footer_count);
     let body = if app.action_menu.is_some() {
         actions(app, width, content_height)
@@ -241,6 +291,9 @@ pub fn render(app: &App, width: u16, height: u16) -> String {
     frame.extend(body.into_iter().take(content_height));
     while frame.len() < height.saturating_sub(footer_count) {
         frame.push(Line::new(""));
+    }
+    if height >= 12 {
+        frame.push(Line::styled("─".repeat(width), Tone::Dim));
     }
     if let Some(prompt) = &app.prompt {
         if show_error {
@@ -269,7 +322,11 @@ pub fn render(app: &App, width: u16, height: u16) -> String {
                     &app.status
                 }
             ),
-            Tone::Warning,
+            if app.status.starts_with("Erro:") {
+                Tone::Warning
+            } else {
+                Tone::Normal
+            },
         ));
     }
     if height >= 9 && app.prompt.is_none() {
@@ -282,8 +339,12 @@ pub fn render(app: &App, width: u16, height: u16) -> String {
             } else {
                 " Enter confirmar  Esc cancelar  Ctrl+U limpar  Ctrl+C sair"
             }
+        } else if app.destination.is_some() {
+            " ↑↓ Navegar  / Buscar  d Caminho  Ctrl+C Sair"
         } else if app.action_menu.is_some() {
             " ↑↓ escolher · digite busca · Enter executar · Esc voltar"
+        } else if app.screen == Screen::Browser {
+            " D Downloads  h Início  : Ações  ? Ajuda  q Sair"
         } else if width < 44 {
             " : Ações  ? Ajuda  q Sair"
         } else {
@@ -534,8 +595,9 @@ fn works(app: &App, width: usize, height: usize) -> Vec<Line> {
     };
     let summary = Summary::dataset(dataset);
     let visible = app.visible_works();
-    let mut lines = vec![
-        Line::styled(
+    let mut lines = Vec::new();
+    if app.height < 12 {
+        lines.push(Line::styled(
             format!(
                 " FC2: {} trabalhos · {} medições · {} grupos",
                 dataset.works.len(),
@@ -543,14 +605,14 @@ fn works(app: &App, width: usize, height: usize) -> Vec<Line> {
                 summary.groups
             ),
             Tone::Heading,
-        ),
-        Line::new(format!(
-            " {} · sem data {} · sem GPS {}",
-            period(&summary),
-            summary.missing_dates,
-            summary.missing_gps
-        )),
-    ];
+        ));
+    }
+    lines.push(Line::new(format!(
+        " {} · sem data {} · sem GPS {}",
+        period(&summary),
+        summary.missing_dates,
+        summary.missing_gps
+    )));
     note(
         &mut lines,
         format!(
@@ -1505,10 +1567,36 @@ fn browser(app: &App, width: usize, height: usize) -> Vec<Line> {
     let browser = &app.browser;
     let visible = app.visible_browser();
     let mut lines = vec![Line::new(format!(" {}", browser.directory.display()))];
+    if let Some(destination) = &app.destination {
+        let count = destination
+            .selection
+            .as_ref()
+            .map(|s| s.len())
+            .unwrap_or_else(|| app.dataset().map(|d| d.works.len()).unwrap_or(0));
+        lines.push(Line::styled(
+            format!(
+                " Exportar {count} trabalho(s) · {}",
+                match destination.mode {
+                    crate::export::works::ExportMode::Simple => "Somente XLSX",
+                    crate::export::works::ExportMode::Complete =>
+                        "XLSX + auditoria e arquivos brutos",
+                }
+            ),
+            Tone::Heading,
+        ));
+        note(
+            &mut lines,
+            " s seleciona ESTA pasta; Enter abre a pasta destacada.",
+        );
+        note(
+            &mut lines,
+            " Uma subpasta nova será criada; você confirma o nome antes de exportar.",
+        );
+    }
     note(
         &mut lines,
         format!(
-            " Enter abre pasta/arquivo · d diretório · Esc volta · busca: {}",
+            " Navegação local · / buscar · d caminho · busca: {}",
             if browser.search.is_empty() {
                 "—"
             } else {
@@ -1539,7 +1627,10 @@ fn browser(app: &App, width: usize, height: usize) -> Vec<Line> {
                 } else {
                     " "
                 },
-                fit(&entry.label, width.saturating_sub(11))
+                fit(
+                    &entry.label,
+                    width.saturating_sub(measure_text_width(prefix) + 3)
+                )
             );
             lines.push(Line::styled(
                 text,
@@ -1651,8 +1742,8 @@ mod tests {
     fn work_preview_labels_calculated_statistics_and_preserves_absences() {
         use crate::{records::Segment, workspace::WorkGroup};
         let mut raw = [0u8; 48];
-        raw[..5].copy_from_slice(&[1, 2, 3, 4, 5]);
-        for (offset, value) in [(24, 123u16), (26, 45), (28, 169), (30, 1), (32, 26)] {
+        raw[..5].copy_from_slice(&[1, 2, 3, 12, 3]);
+        for (offset, value) in [(24, 123u16), (26, 45), (28, 169), (30, 1), (32, 24)] {
             raw[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
         }
         raw[36..40].copy_from_slice(&7u32.to_le_bytes());

@@ -7,13 +7,6 @@ fn segments() -> Vec<Segment> {
         length: 48,
     }]
 }
-fn raw(hex: &str) -> Vec<u8> {
-    hex.as_bytes()
-        .chunks_exact(2)
-        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
-        .collect()
-}
-
 fn synthetic_record(
     id: u32,
     point: u16,

@@ -30,6 +30,30 @@ o executável construído no NixOS não foi certificado como portátil para Ubun
 O programa Rust não exige Node, Python, Excel nem bibliotecas da Falker.
 O script opcional de normalização do XLSX requer Node.js.
 
+### Distribuir como um único arquivo
+
+O HTML de downloads está embutido no executável. Para usar a aplicação compilada,
+não são necessários o código-fonte, Cargo, Node, Python, Excel ou Falker Leaf.
+Compartilhe um executável específico para cada sistema e arquitetura.
+As licenças da aplicação e dos ícones também estão embutidas: `fc2 license`.
+
+No Windows, `cargo build --release --locked --target x86_64-pc-windows-msvc` usa o runtime
+MSVC estático configurado em `.cargo/config.toml`. Compartilhe
+`target/x86_64-pc-windows-msvc/release/fc2.exe`; iniciar sem argumentos
+abre a TUI, e um caminho FC2 pode ser passado diretamente ao executável.
+
+No Linux, o build portátil usa musl (instale o linker musl antes de compilar):
+
+```bash
+rustup target add x86_64-unknown-linux-musl
+cargo build --release --locked --target x86_64-unknown-linux-musl
+```
+
+Compartilhe somente `target/x86_64-unknown-linux-musl/release/fc2` e mantenha sua
+permissão de execução. `.github/workflows/binaries.yml` prepara esses builds
+Windows/Linux quando acionado manualmente ou por uma tag `v*`; não publica dados
+experimentais. Windows e os artefatos da automação ainda requerem execução real.
+
 ## Listar e baixar todos os trabalhos
 
 ### Interface no terminal (TUI)
@@ -40,6 +64,8 @@ O script opcional de normalização do XLSX requer Node.js.
 ./target/release/fc2 tui arquivo.FC2 --profile local/perfil.json
 # Sem argumento: abre um navegador de arquivos locais
 ./target/release/fc2 tui
+# Também abre a TUI, sem subcomando
+./target/release/fc2
 ```
 
 A TUI abre com contagens, período, ausências e resumo do trabalho selecionado.
@@ -52,11 +78,17 @@ avisos. `e` exporta XLSX do trabalho selecionado; `E` exporta todos;
 `M` alterna completo/simples; `e` exporta os marcados (ou o atual sem marcas).
 Simples é o padrão e gera somente XLSX; completo inclui os acompanhantes de auditoria.
 As saídas usam os mesmos controles da CLI, sem sobrescrita.
+`e` e `E` abrem um seletor de pastas em Downloads (ou na pasta equivalente
+configurada no sistema). Enter entra na pasta destacada; `s` seleciona a pasta
+atual. Confirme o caminho da subpasta nova antes de exportar. `D` volta a Downloads,
+`h` abre a pasta pessoal e `d` permite informar outro caminho ou unidade Windows.
+O destino escolhido é reutilizado enquanto a aplicação estiver aberta.
 Requer terminal ANSI/VT interativo; pipes devem usar os outros comandos CLI.
 Consulte [atalhos e fluxo completo](docs/tui.md).
 
 ```bash
 fc2 works arquivo.FC2
+fc2 export arquivo.FC2
 fc2 export arquivo.FC2 --mode complete --output resultados
 fc2 serve resultados --port 8712
 ```
@@ -68,6 +100,7 @@ Não há CDN, upload, conta ou envio dos dados à internet. A seleção do FC2 �
 feita pelo argumento da CLI; esta versão da página não tem formulário de upload.
 
 O diretório de saída deve ser novo. Arquivos existentes não são sobrescritos.
+Sem `--output`, a CLI cria uma subpasta nova em Downloads com nome baseado no FC2.
 Falhas de um trabalho são registradas no manifesto e bloqueiam seu XLSX;
 os demais resultados continuam disponíveis, com saída da CLI diferente de zero.
 Falhas do contêiner, CRC ou árvore de arquivos bloqueiam a extração.

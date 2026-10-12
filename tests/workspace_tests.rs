@@ -452,7 +452,7 @@ fn missing_calendar_and_gps_produce_blank_xlsx_cells_without_merging_groups() {
     }
     assert!(first.contains("r=\"B9\""));
     assert!(first.contains("r=\"J9\""));
-    assert!(second.contains("04-05-2026"));
+    assert!(second.contains("12-03-2024"));
     assert!(second.contains("-12.25"));
     let workbook = String::from_utf8(parts["xl/workbook.xml"].clone()).unwrap();
     assert!(workbook.contains("Medidas 1"));

@@ -5,6 +5,57 @@ use fc2_rs::{
 };
 use std::collections::BTreeMap;
 
+#[test]
+#[cfg(not(windows))]
+fn cli_default_destination_uses_configured_downloads_outside_source_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let downloads = root.path().join("Baixados");
+    let config = root.path().join("config");
+    let sources = root.path().join("source");
+    for path in [&downloads, &config, &sources] {
+        std::fs::create_dir(path).unwrap();
+    }
+    std::fs::write(
+        config.join("user-dirs.dirs"),
+        format!("XDG_DOWNLOAD_DIR=\"{}\"\n", downloads.display()),
+    )
+    .unwrap();
+    let (bytes, _) = fixture();
+    let input = sources.join("synthetic.FC2");
+    std::fs::write(&input, &bytes).unwrap();
+    for (mode, name) in [
+        ("simple", "synthetic-trabalhos"),
+        ("complete", "synthetic-trabalhos-1"),
+    ] {
+        let result = std::process::Command::new(env!("CARGO_BIN_EXE_fc2"))
+            .current_dir(&sources)
+            .env("HOME", root.path())
+            .env("XDG_CONFIG_HOME", &config)
+            .arg("export")
+            .arg(&input)
+            .args(["--mode", mode])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let destination = downloads.join(name);
+        assert!(destination.is_dir());
+        assert!(std::fs::read_dir(&destination).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .path()
+                .extension()
+                .is_some_and(|ext| ext == "xlsx")
+        }));
+        assert_eq!(destination.join("index.html").exists(), mode == "complete");
+    }
+    assert_eq!(std::fs::read(&input).unwrap(), bytes);
+    assert_eq!(std::fs::read_dir(&sources).unwrap().count(), 1);
+}
+
 struct Builder {
     memory: Vec<u8>,
     physical: usize,

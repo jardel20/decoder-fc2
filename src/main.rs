@@ -19,11 +19,14 @@ use std::{
 #[command(
     name = "fc2",
     version,
+    args_conflicts_with_subcommands = true,
     about = "FC2 inspection, active-work XLSX export and reference validation"
 )]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
+    /// Optional FC2 to open directly (also supports dropping a file on the executable)
+    file: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -65,6 +68,8 @@ fn parse_offset(s: &str) -> std::result::Result<usize, String> {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Show the embedded application and icon licenses
+    License,
     /// Interactive terminal: browse files, works, measurements and exports
     Tui {
         file: Option<PathBuf>,
@@ -81,7 +86,7 @@ enum Commands {
     Export {
         file: PathBuf,
         #[arg(short, long)]
-        output: PathBuf,
+        output: Option<PathBuf>,
         #[arg(long)]
         /// Repeat --work to select multiple works; omit to export all
         work: Vec<u16>,
@@ -209,7 +214,15 @@ struct BatchReport {
 }
 
 fn run(cli: Cli) -> Result<()> {
-    match cli.command {
+    match cli.command.unwrap_or(Commands::Tui {
+        file: cli.file,
+        profile: None,
+    }) {
+        Commands::License => output_text(concat!(
+            include_str!("../LICENSE"),
+            "\nPhosphor Icons\n",
+            include_str!("../licenses/Phosphor-Icons-MIT.txt")
+        )),
         Commands::Tui { file, profile } => tui::run(file.as_deref(), profile.as_deref()),
         Commands::Works { file, output } => {
             let dataset = workspace::decode(&reader::read_file(&file)?)?;
@@ -252,6 +265,13 @@ fn run(cli: Cli) -> Result<()> {
             profile,
             order,
         } => {
+            let output = output.unwrap_or_else(|| {
+                let stem = file.file_stem().unwrap_or_default().to_string_lossy();
+                fc2_rs::paths::new_output(
+                    &fc2_rs::paths::downloads_dir(),
+                    &format!("{stem}-trabalhos"),
+                )
+            });
             let bytes = reader::read_file(&file)?;
             let mut dataset = workspace::decode(&bytes)?;
             if let Some(profile) = profile {

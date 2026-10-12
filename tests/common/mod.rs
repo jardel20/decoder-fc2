@@ -29,13 +29,13 @@ pub fn wrap(memory: &[u8]) -> Vec<u8> {
 
 pub fn raw_record() -> [u8; 48] {
     let mut b = [0; 48];
-    b[..5].copy_from_slice(&[1, 2, 3, 4, 5]);
+    b[..5].copy_from_slice(&[1, 2, 3, 12, 3]);
     for (offset, value) in [
         (24, 123_u16),
         (26, 45),
         (28, 169),
         (30, 1),
-        (32, 26),
+        (32, 24),
         (34, 650),
     ] {
         b[offset..offset + 2].copy_from_slice(&value.to_le_bytes());

@@ -1,0 +1,42 @@
+name: Portable executables
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: fc2-windows-x64
+            file: fc2.exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            name: fc2-linux-x64
+            file: fc2
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux linker
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Install target
+        run: rustup target add ${{ matrix.target }}
+      - name: Build standalone executable
+        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Test target
+        run: cargo test --locked --target ${{ matrix.target }}
+      - name: Check CLI outside checkout
+        working-directory: ${{ runner.temp }}
+        shell: bash
+        run: '"${{ github.workspace }}/target/${{ matrix.target }}/release/${{ matrix.file }}" --help'
+      - name: Upload single executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: target/${{ matrix.target }}/release/${{ matrix.file }}
+          if-no-files-found: error

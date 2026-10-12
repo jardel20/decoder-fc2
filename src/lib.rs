@@ -7,6 +7,7 @@ pub mod error;
 pub mod export;
 pub mod filesystem;
 pub mod parser;
+pub mod paths;
 pub mod reader;
 pub mod records;
 pub mod tui;

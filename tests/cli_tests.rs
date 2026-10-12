@@ -6,6 +6,33 @@ fn fc2() -> Command {
 }
 
 #[test]
+fn single_executable_opens_tui_by_default_and_accepts_a_direct_fc2_path() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("synthetic.FC2");
+    let bytes = common::fixture().0;
+    std::fs::write(&source, &bytes).unwrap();
+    for direct in [false, true] {
+        let mut command = fc2();
+        command.current_dir(root.path());
+        if direct {
+            command.arg(&source);
+        }
+        let result = command.output().unwrap();
+        assert!(!result.status.success());
+        assert!(String::from_utf8_lossy(&result.stderr).contains("terminal"));
+        assert!(result.stdout.is_empty());
+    }
+    assert_eq!(std::fs::read(source).unwrap(), bytes);
+    let result = fc2()
+        .current_dir(root.path())
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    assert!(String::from_utf8_lossy(&result.stdout).contains("[FILE]"));
+}
+
+#[test]
 fn tui_refuses_unattended_pipes_without_ansi_or_source_changes() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("input.FC2");

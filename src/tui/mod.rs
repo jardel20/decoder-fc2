@@ -77,6 +77,13 @@ pub(super) struct Browser {
     pub search: String,
 }
 
+pub(super) struct Destination {
+    pub selection: Option<Vec<u16>>,
+    pub mode: export::works::ExportMode,
+    browser: Browser,
+    screen: Screen,
+}
+
 impl Browser {
     fn read(path: &Path) -> Result<Self> {
         let directory = std::fs::canonicalize(path)?;
@@ -194,6 +201,8 @@ pub(super) struct App {
     pub action_menu: Option<ActionMenu>,
     pub marked_works: std::collections::BTreeSet<u16>,
     pub export_mode: export::works::ExportMode,
+    pub destination: Option<Destination>,
+    pub export_root: PathBuf,
     profile: Option<Profile>,
     return_screen: Screen,
     height: usize,
@@ -224,6 +233,8 @@ impl App {
             action_menu: None,
             marked_works: std::collections::BTreeSet::new(),
             export_mode: export::works::ExportMode::Simple,
+            destination: None,
+            export_root: crate::paths::downloads_dir(),
             profile: None,
             return_screen: Screen::Works,
             height: 24,
@@ -281,13 +292,18 @@ impl App {
     }
 
     pub fn visible_works(&self) -> Vec<usize> {
+        let screen = self
+            .destination
+            .as_ref()
+            .map(|d| d.screen)
+            .unwrap_or(self.screen);
         self.dataset()
             .map(|d| {
                 d.works
                     .iter()
                     .enumerate()
                     .filter(|(_, w)| {
-                        self.screen != Screen::Works
+                        screen != Screen::Works
                             || ((!self.only_warnings
                                 || w.warning_count() > 0
                                 || !w.errors.is_empty())
@@ -369,7 +385,10 @@ impl App {
             .entries
             .iter()
             .enumerate()
-            .filter(|(_, e)| matches_query(&self.browser.search, &e.label))
+            .filter(|(_, e)| {
+                (self.destination.is_none() || e.is_dir)
+                    && matches_query(&self.browser.search, &e.label)
+            })
             .map(|(i, _)| i)
             .collect()
     }
@@ -608,20 +627,50 @@ impl App {
             .and_then(|f| f.path.file_stem())
             .map(|s| s.to_string_lossy())
             .unwrap_or("fc2".into());
-        let root = self
-            .file
-            .as_ref()
-            .and_then(|f| f.path.parent())
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        let base = root.join(format!("{stem}-{suffix}"));
-        let mut candidate = base.clone();
-        let mut count = 1usize;
-        while candidate.exists() {
-            candidate = root.join(format!("{stem}-{suffix}-{count}"));
-            count += 1;
+        crate::paths::new_output(&self.export_root, &format!("{stem}-{suffix}"))
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn choose_destination(&mut self, selection: Option<Vec<u16>>) -> Result<()> {
+        let browser = Browser::read(&self.export_root)?;
+        let previous = std::mem::replace(&mut self.browser, browser);
+        self.destination = Some(Destination {
+            selection,
+            mode: self.export_mode,
+            browser: previous,
+            screen: self.screen,
+        });
+        self.screen = Screen::Browser;
+        self.status = "Escolha a pasta de destino. s seleciona a pasta atual; a saída será uma subpasta nova.".into();
+        Ok(())
+    }
+
+    fn close_destination(&mut self) {
+        if let Some(destination) = self.destination.take() {
+            self.browser = destination.browser;
+            self.screen = destination.screen;
         }
-        candidate.to_string_lossy().into_owned()
+    }
+
+    fn confirm_destination(&mut self) {
+        if let Some(destination) = &self.destination {
+            let action =
+                PromptAction::ExportSelection(destination.selection.clone(), destination.mode);
+            let stem = self
+                .file
+                .as_ref()
+                .and_then(|file| file.path.file_stem())
+                .map(|s| s.to_string_lossy())
+                .unwrap_or("fc2".into());
+            let output =
+                crate::paths::new_output(&self.browser.directory, &format!("{stem}-trabalhos"));
+            self.prompt(
+                action,
+                "Confirmar subpasta NOVA de exportação (caminho editável)",
+                output.to_string_lossy().into_owned(),
+            );
+        }
     }
 
     fn set_screen(&mut self, screen: Screen) {
@@ -723,6 +772,10 @@ impl App {
                         .collect::<Vec<_>>()
                         .join("; ");
                     self.status.push_str(&format!(" · Bloqueados: {blocked}"));
+                }
+                if self.destination.is_some() {
+                    self.export_root = path.parent().unwrap_or(&self.browser.directory).to_owned();
+                    self.close_destination();
                 }
             }
             PromptAction::Backup => {
@@ -1041,10 +1094,13 @@ impl App {
                 }
                 _ => self.prompt = Some(prompt),
             }
-            if let Some(prompt) = &self.prompt {
-                if matches!(prompt.action, PromptAction::Search) {
-                    self.update_search(prompt.value.clone());
-                }
+            let live_query = self
+                .prompt
+                .as_ref()
+                .filter(|p| matches!(p.action, PromptAction::Search))
+                .map(|p| p.value.clone());
+            if let Some(query) = live_query {
+                self.update_search(query);
             }
             return Ok(true);
         }
@@ -1080,6 +1136,48 @@ impl App {
             }
             self.action_menu = Some(menu);
             return Ok(true);
+        }
+        if self.destination.is_some() {
+            match key {
+                Key::Char('s') => {
+                    self.confirm_destination();
+                    return Ok(true);
+                }
+                Key::Escape => {
+                    self.close_destination();
+                    self.status = "Escolha de destino cancelada; nenhuma exportação criada.".into();
+                    return Ok(true);
+                }
+                Key::Char('D') => {
+                    self.browser = Browser::read(&crate::paths::downloads_dir())?;
+                    return Ok(true);
+                }
+                Key::Char('h') => {
+                    if let Some(home) = crate::paths::home_dir() {
+                        self.browser = Browser::read(&home)?;
+                    }
+                    return Ok(true);
+                }
+                Key::Char('O') => {
+                    self.prompt(
+                        PromptAction::Directory,
+                        "Ir para pasta (ex.: C:\\Dados ou /mnt/dados)",
+                        self.browser.directory.to_string_lossy().into_owned(),
+                    );
+                    return Ok(true);
+                }
+                Key::ArrowUp
+                | Key::ArrowDown
+                | Key::PageUp
+                | Key::PageDown
+                | Key::Home
+                | Key::End
+                | Key::Enter
+                | Key::Backspace
+                | Key::Char('d')
+                | Key::Char('/') => {}
+                _ => return Ok(true),
+            }
         }
         match key {
             Key::Char('q') => return Ok(false),
@@ -1237,6 +1335,14 @@ impl App {
                 "Abrir diretório",
                 self.browser.directory.to_string_lossy().into_owned(),
             ),
+            Key::Char('D') if self.screen == Screen::Browser => {
+                self.browser = Browser::read(&crate::paths::downloads_dir())?;
+            }
+            Key::Char('h') if self.screen == Screen::Browser => {
+                if let Some(home) = crate::paths::home_dir() {
+                    self.browser = Browser::read(&home)?;
+                }
+            }
             Key::Char('/') => {
                 if matches!(
                     self.screen,
@@ -1268,27 +1374,11 @@ impl App {
                 } else {
                     self.marked_works.iter().copied().collect()
                 };
-                let label = format!(
-                    "Exportar {} trabalho(s) · {} · diretório NOVO",
-                    numbers.len(),
-                    self.export_mode_label()
-                );
-                self.prompt(
-                    PromptAction::ExportSelection(Some(numbers), self.export_mode),
-                    &label,
-                    self.output_path("selecionados"),
-                );
+                self.choose_destination(Some(numbers))?;
             }
             Key::Char('E') => {
-                let label = format!(
-                    "Exportar TODOS os trabalhos · {} · diretório NOVO",
-                    self.export_mode_label()
-                );
-                self.prompt(
-                    PromptAction::ExportSelection(None, self.export_mode),
-                    &label,
-                    self.output_path("trabalhos"),
-                );
+                self.source()?;
+                self.choose_destination(None)?;
             }
             Key::Char(' ') if self.screen == Screen::Works => {
                 if let Some(number) = self.selected_work().map(|w| w.number) {

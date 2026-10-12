@@ -29,3 +29,19 @@ ocultos pelo filtro.
 
 O modo simples é o padrão e gera somente XLSX. O completo também inclui auditoria,
 arquivos brutos e página local. Ambos recusam sobrescrever a pasta de saída.
+
+`e`/`E` abrem o seletor de destino em Downloads ou na localização equivalente
+configurada pelo usuário. Ele mostra somente pastas: Enter entra; Backspace volta
+à pasta pai; `/` busca; `s` seleciona a pasta atual; `d` ou `O` aceitam um caminho
+direto (inclusive outra unidade Windows); `D` abre Downloads; `h` abre a pasta
+pessoal. Em seguida, confirme ou edite o caminho da subpasta nova. Esc cancela a
+confirmação e volta ao seletor; outro Esc cancela o seletor sem criar saídas nem
+alterar os trabalhos marcados. Após exportar, a pasta escolhida é reutilizada.
+
+O cabeçalho organiza arquivo, contagens gerais, versão, modo, seleção e destino.
+O rodapé separa mensagens de estado, atalhos do contexto e ações gerais. Em
+terminais pequenos, as linhas se adaptam ao espaço disponível.
+
+Iniciar `fc2` sem argumentos abre o navegador de arquivos; `fc2 arquivo.FC2`
+abre diretamente a TUI para esse arquivo. A aplicação não depende da pasta de
+código-fonte ou do HTML externo depois de compilada.

@@ -130,13 +130,13 @@ impl FixtureBuilder {
 }
 fn record(id: u32, point: u16) -> [u8; 48] {
     let mut raw = [0; 48];
-    raw[..5].copy_from_slice(&[1, 2, 3, 4, 5]);
+    raw[..5].copy_from_slice(&[1, 2, 3, 12, 3]);
     for (offset, value) in [
         (24, 123u16),
         (26, 45),
         (28, 169),
         (30, point),
-        (32, 26),
+        (32, 24),
         (34, 650),
     ] {
         raw[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
@@ -213,6 +213,51 @@ fn complete_export_prompt(app: &mut App, output: &Path) {
 }
 fn path_value(path: &Path) -> String {
     path.to_string_lossy().into_owned()
+}
+
+#[test]
+fn destination_picker_navigates_folders_and_cancels_without_changing_selection() {
+    let (temp, source, mut app) = app_fixture();
+    let root = temp.path().join("Baixados");
+    let child = root.join("Planilhas");
+    std::fs::create_dir_all(&child).unwrap();
+    std::fs::write(root.join("not-a-folder.txt"), "preserve").unwrap();
+    app.export_root = root.clone();
+    app.submit(PromptAction::Search, "beta".into()).unwrap();
+    app.key(Key::Char(' ')).unwrap();
+    let old_browser = app.browser.directory.clone();
+    let original = std::fs::read(&source).unwrap();
+    app.key(Key::Char('e')).unwrap();
+    assert_eq!(app.screen, Screen::Browser);
+    assert!(app.prompt.is_none());
+    assert_eq!(app.browser.directory, root);
+    assert!(
+        app.visible_browser()
+            .iter()
+            .all(|&i| app.browser.entries[i].is_dir)
+    );
+    app.browser.index = app
+        .visible_browser()
+        .iter()
+        .position(|&i| app.browser.entries[i].path == child)
+        .unwrap();
+    app.key(Key::Enter).unwrap();
+    assert_eq!(app.browser.directory, child);
+    app.key(Key::Char('s')).unwrap();
+    assert!(Path::new(&app.prompt.as_ref().unwrap().value).starts_with(&child));
+    assert!(matches!(app.prompt.as_ref().unwrap().action,
+        PromptAction::ExportSelection(Some(ref works), ExportMode::Simple) if works == &[200]));
+    app.key(Key::Escape).unwrap();
+    assert!(app.destination.is_some());
+    app.key(Key::Escape).unwrap();
+    assert!(app.destination.is_none());
+    assert_eq!(app.screen, Screen::Works);
+    assert_eq!(app.search, "beta");
+    assert_eq!(app.selected_work().unwrap().number, 200);
+    assert!(app.marked_works.contains(&200));
+    assert_eq!(app.browser.directory, old_browser);
+    assert_eq!(std::fs::read(source).unwrap(), original);
+    assert_eq!(directory_names(&child), Vec::<String>::new());
 }
 fn read_json(path: &Path) -> serde_json::Value {
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
@@ -324,6 +369,7 @@ fn simple_exports_current_or_marked_works_only_as_xlsx_with_all_groups() {
     assert!(matches!(app.export_mode, ExportMode::Simple));
     app.submit(PromptAction::Search, "beta".into()).unwrap();
     app.key(Key::Char('e')).unwrap();
+    app.key(Key::Char('s')).unwrap();
     assert!(matches!(
         app.prompt.as_ref().unwrap().action,
         PromptAction::ExportSelection(Some(ref numbers), ExportMode::Simple) if numbers == &[200]
@@ -346,6 +392,7 @@ fn simple_exports_current_or_marked_works_only_as_xlsx_with_all_groups() {
     app.submit(PromptAction::Search, "102".into()).unwrap();
     assert_eq!(app.visible_records().len(), 1);
     app.key(Key::Char('e')).unwrap();
+    app.key(Key::Char('s')).unwrap();
     assert!(matches!(
         app.prompt.as_ref().unwrap().action,
         PromptAction::ExportSelection(Some(ref numbers), ExportMode::Simple) if numbers == &[100, 200]
@@ -380,6 +427,7 @@ fn complete_marked_export_limits_raw_and_json_scope_and_prompt_is_a_snapshot() {
     app.key(Key::Char(' ')).unwrap();
     app.submit(PromptAction::Search, "alpha".into()).unwrap();
     app.key(Key::Char('e')).unwrap();
+    app.key(Key::Char('s')).unwrap();
     assert!(matches!(
         app.prompt.as_ref().unwrap().action,
         PromptAction::ExportSelection(Some(ref numbers), ExportMode::Complete) if numbers == &[200]
@@ -415,6 +463,7 @@ fn export_all_ignores_hidden_marks_and_failed_output_preserves_state_for_retry()
     app.submit(PromptAction::Search, "beta".into()).unwrap();
     app.key(Key::Char(' ')).unwrap();
     app.key(Key::Char('E')).unwrap();
+    app.key(Key::Char('s')).unwrap();
     assert!(matches!(
         app.prompt.as_ref().unwrap().action,
         PromptAction::ExportSelection(None, ExportMode::Simple)
@@ -624,6 +673,7 @@ fn action_menu_blocks_csv_without_profile_and_keeps_filtered_export_selection() 
     assert_eq!(app.visible_actions().len(), 1);
     assert_eq!(app.visible_actions()[0].key, 'e');
     app.key(Key::Enter).unwrap();
+    app.key(Key::Char('s')).unwrap();
     assert!(app.action_menu.is_none());
     assert!(matches!(
         app.prompt.as_ref().unwrap().action,
@@ -666,10 +716,12 @@ fn browser_round_trip_keeps_selected_filtered_work_even_with_warning_filter() {
     assert_eq!(app.screen, Screen::Browser);
     assert_eq!(app.selected_work().unwrap().number, 200);
     app.key(Key::Char('e')).unwrap();
+    app.key(Key::Char('s')).unwrap();
     assert!(matches!(
         app.prompt.as_ref().unwrap().action,
         PromptAction::ExportSelection(Some(ref numbers), ExportMode::Simple) if numbers == &[200]
     ));
+    app.key(Key::Escape).unwrap();
     app.key(Key::Escape).unwrap();
     app.key(Key::Escape).unwrap();
     assert_eq!(app.screen, Screen::Works);
@@ -760,6 +812,7 @@ fn selected_export_preserves_scope_full_group_coverage_and_refuses_overwrite_or_
     let original = std::fs::read(&source).unwrap();
     app.submit(PromptAction::Search, "beta".into()).unwrap();
     app.key(Key::Char('e')).unwrap();
+    app.key(Key::Char('s')).unwrap();
     assert!(matches!(
         app.prompt.take().unwrap().action,
         PromptAction::ExportSelection(Some(ref numbers), ExportMode::Simple) if numbers == &[200]
