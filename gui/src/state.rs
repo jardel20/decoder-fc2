@@ -198,6 +198,16 @@ impl Default for State {
 }
 impl State {
     pub fn install(&mut self, loaded: Arc<LoadedDataset>) {
+        self.status = format!(
+            "{} trabalhos · {} registros carregados de {}. CRC estrutural conferido.",
+            loaded.dataset.works.len(),
+            loaded
+                .summaries
+                .iter()
+                .map(|summary| summary.records)
+                .sum::<usize>(),
+            loaded.source_path.display()
+        );
         self.selected_work = (!loaded.dataset.works.is_empty()).then_some(0);
         self.loaded = Some(loaded);
         self.selected_record = None;
@@ -209,9 +219,6 @@ impl State {
         self.work_query.clear();
         self.work_cache = None;
         self.error = None;
-        self.status =
-            "FC2 carregado; CRC estrutural conferido. Equivalência Leaf depende de referência."
-                .into();
         self.refresh_works();
     }
     pub fn refresh_works(&mut self) {

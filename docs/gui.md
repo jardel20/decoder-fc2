@@ -124,6 +124,16 @@ Linux portátil e validação física Windows continuam pendentes.
 
 Abra um FC2 ou arraste o arquivo para a janela. A leitura verifica a estrutura
 fora do render, preserva o arquivo anterior quando falha e não modifica o FC2.
+
+O botão de seta circular ao lado de **Abrir FC2** recarrega o caminho atual do
+disco, sem abrir o seletor. A aplicação não monitora alterações no disco em
+segundo plano: importe novamente ou use **Recarregar** após substituir o FC2.
+Cada leitura substitui os dados e limpa buscas, marcações e tabelas anteriores.
+O rodapé informa o caminho e as quantidades carregadas; o nome no cabeçalho
+mostra o caminho completo e SHA-256 ao passar o cursor. Se a nova leitura tiver
+conteúdo idêntico ao anterior, o rodapé avisa para conferir o arquivo escolhido.
+Arquivos do equipamento podem manter o mesmo nome e tamanho mesmo após novas
+medições; a identificação do conteúdo usa SHA-256.
 Selecione um trabalho para atualizar detalhes e destaque no mapa; duplo clique
 ou **Abrir trabalho** abre as abas **Medições**, **Mapa**, **Metadados** e
 **Exportação**. **Voltar** preserva seleção, filtros e posição cartográfica.

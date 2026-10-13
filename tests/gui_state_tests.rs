@@ -218,6 +218,53 @@ fn install_indexes_real_decoder_output_and_resets_previous_source_state() {
 }
 
 #[test]
+fn reopening_overwritten_same_path_discovers_new_works_and_clears_old_filters() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("CFL2IMG.FC2");
+    std::fs::write(&path, source()).unwrap();
+    let previous = Arc::new(LoadedDataset::load(&path).unwrap());
+    let previous_hash = previous.dataset.source_sha256.clone();
+    let mut state = State::default();
+    state.install(previous.clone());
+    state.work_query = "SYNTHETIC".into();
+    state.mark_all(true);
+    state.refresh_works();
+    state.open_work(0);
+    state.tables.entry(0).or_default().refresh(&previous, 0);
+
+    // Simulate a fresh instrument export replacing the same filename, without
+    // relying on size or modification time (both containers are the same size).
+    let mut builder = Builder::new();
+    builder.work(
+        10,
+        Some(config(10, "SYNTHETIC", &[2])),
+        vec![("1", records(10, 2))],
+    );
+    builder.work(20, None, vec![("1", records(30, 1))]);
+    builder.work(
+        143,
+        Some(config(143, "TRABALHO143", &[3])),
+        vec![("1", records(40, 3))],
+    );
+    let updated = builder.finish();
+    assert_eq!(updated.len(), previous.source_bytes.len());
+    std::fs::write(&path, &updated).unwrap();
+    let refreshed = Arc::new(LoadedDataset::load(&path).unwrap());
+    assert_ne!(refreshed.dataset.source_sha256, previous_hash);
+    assert_eq!(previous.dataset.works.len(), 2);
+    state.install(refreshed);
+    assert_eq!(state.visible_works, vec![0, 1, 2]);
+    assert_eq!(state.loaded.as_ref().unwrap().work(2).unwrap().number, 143);
+    assert_eq!(state.loaded.as_ref().unwrap().summaries[2].records, 3);
+    assert!(state.tables.is_empty());
+    assert!(state.marked_works.is_empty());
+    assert!(state.work_query.is_empty());
+    assert_eq!(state.view, AppView::Explorer);
+    assert!(state.status.contains("3 trabalhos"));
+    assert_eq!(std::fs::read(&path).unwrap(), updated);
+}
+
+#[test]
 fn selecting_previews_and_open_back_preserve_search_table_and_tab() {
     let mut state = State::default();
     state.install(Arc::new(loaded()));

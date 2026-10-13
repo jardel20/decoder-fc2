@@ -76,8 +76,14 @@ impl ExplorerApp {
                     }
                     match result {
                         Ok(Some(loaded)) => {
+                            let unchanged = self.state.loaded.as_ref().is_some_and(|previous| {
+                                previous.dataset.source_sha256 == loaded.dataset.source_sha256
+                            });
                             self.map.fit_points(&loaded.locations);
                             self.state.install(loaded);
+                            if unchanged {
+                                self.state.status.push_str(" O conteúdo é idêntico ao anterior; confira se escolheu o arquivo atualizado.");
+                            }
                             self.points_work = None;
                             self.work_points.clear();
                         }
@@ -174,6 +180,16 @@ impl ExplorerApp {
                         if icons::button(ui, Glyph::FolderOpen, "Abrir FC2").clicked() {
                             self.load(ui.ctx(), None);
                         }
+                        if let Some(path) = self
+                            .state
+                            .loaded
+                            .as_ref()
+                            .map(|data| data.source_path.clone())
+                            && icons::icon_button(ui, Glyph::Reload, "Recarregar o FC2 do disco")
+                                .clicked()
+                        {
+                            self.load(ui.ctx(), Some(path));
+                        }
                     },
                 );
                 if icons::button(ui, Glyph::Terminal, "TUI").clicked() {
@@ -202,7 +218,7 @@ impl ExplorerApp {
                         .file_name()
                         .unwrap_or_default()
                         .to_string_lossy(),
-                );
+                ).on_hover_text(format!("Arquivo carregado: {}\nSHA-256: {}\nUse Recarregar para ler novamente este caminho.", loaded.source_path.display(), loaded.dataset.source_sha256));
                 ui.label(icons::text(Glyph::CheckCircle).color(theme::ACCENT));
                 ui.weak(format!(
                     "CRC conferido · {} setores",
