@@ -52,7 +52,7 @@ fn load(z: u8, x: u32, y: u32) -> Result<(Vec<u8>, bool), String> {
         .header(
             "User-Agent",
             concat!(
-                "LeafExplorer/",
+                "FC2Explorer/",
                 env!("CARGO_PKG_VERSION"),
                 " (https://github.com/jardel20/Decoder_FC2)"
             ),
@@ -225,7 +225,7 @@ mod tests {
     fn offline_plan_covers_the_region_and_respects_the_tile_limit() {
         let root = Path::new("/nonexistent-cache");
         // One point: a 3 x 3 neighbourhood per zoom, zoom 10 to 18.
-        let single = plan(point(-42.87, -20.76), 18, MAX_OFFLINE_TILES, root).unwrap();
+        let single = plan(point(-45.00, -20.00), 18, MAX_OFFLINE_TILES, root).unwrap();
         assert_eq!((single.min_zoom, single.max_zoom), (10, 18));
         assert_eq!(single.tiles.len(), 9 * 9);
         assert!(
@@ -240,15 +240,15 @@ mod tests {
             assert!(
                 single
                     .tiles
-                    .contains(&(z, tile_x(-42.87, z), tile_y(-20.76, z)))
+                    .contains(&(z, tile_x(-45.00, z), tile_y(-20.00, z)))
             );
         }
         // A wider area lowers the deepest zoom instead of exceeding the limit.
         let wide = Bounds {
-            south: -20.80,
-            west: -42.95,
-            north: -20.70,
-            east: -42.80,
+            south: -20.10,
+            west: -45.10,
+            north: -20.00,
+            east: -44.90,
         };
         let reduced = plan_for(wide, root);
         assert!(reduced.max_zoom < 18 && reduced.tiles.len() <= MAX_OFFLINE_TILES);

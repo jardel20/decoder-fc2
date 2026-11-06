@@ -7,7 +7,7 @@ log_dir="$project_dir/local/desktop-validation/$(date +%Y%m%d-%H%M%S)-$$"
 mkdir -p -- "$log_dir"
 exec > >(tee "$log_dir/build.log") 2>&1
 trap 'status=$?; if (( status != 0 )); then printf "\nFalha (código %s). Log: %s/build.log\n" "$status" "$log_dir"; fi' EXIT
-printf 'Validação desktop Leaf Explorer\nProjeto: %s\nLog: %s/build.log\n' "$project_dir" "$log_dir"
+printf 'Validação desktop FC2 Explorer\nProjeto: %s\nLog: %s/build.log\n' "$project_dir" "$log_dir"
 rustc --version
 cargo --version
 desktop_target="$(rustc -vV | sed -n 's/^host: //p')"

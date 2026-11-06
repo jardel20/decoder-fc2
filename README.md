@@ -15,13 +15,19 @@ Arquivos e valores experimentais não fazem parte desta distribuição.
 
 ### Nova interface desktop: Tauri
 
-O **Leaf Explorer** é a interface desktop do projeto, em `desktop/`, com Tauri 2,
+O **FC2 Explorer** é a interface desktop do projeto, em `desktop/`, com Tauri 2,
 backend Rust e visual em azul, inspirado no Fedora Linux. Ao abrir um arquivo,
 o explorador mostra os trabalhos, um mapa com todos os pontos e os detalhes do
 trabalho selecionado; cada trabalho abre em abas de medições (com ordenação e
 filtros por coluna), mapa, gráficos, metadados e exportação. O fundo do mapa usa
 tiles do OpenStreetMap, com pré-carregamento opcional da região do arquivo para
-uso offline. O nome "Leaf" não indica vínculo com a Falker ou com o Falker Leaf.
+uso offline.
+
+O FC2 Explorer é independente: não tem vínculo, patrocínio ou endosso da Falker.
+"Falker", "Leaf" e "clorofiLOG" pertencem aos seus titulares e são citados apenas
+para identificar os equipamentos e arquivos compatíveis (variantes `.FC2`
+documentadas em `docs/`). O repositório não contém código, firmware, manuais,
+logotipos nem dados da Falker.
 
 ```bash
 cd desktop

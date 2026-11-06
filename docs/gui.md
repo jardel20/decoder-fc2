@@ -1,4 +1,4 @@
-# Leaf Explorer — implementação e entrega
+# FC2 Explorer — implementação e entrega
 
 ## Estado verificável
 

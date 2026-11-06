@@ -44,7 +44,7 @@ ou identificadores de registros. Sem tiles, continuam disponíveis deslocamento,
 zoom e seleção de pontos. Na ausência de coordenadas, o mapa mostra uma visão
 geral sem marcadores e uma indicação explícita; nenhum ponto é inventado.
 
-O cliente identifica-se como `LeafExplorer/<versão>`. Walkers utiliza sua
+O cliente identifica-se como `FC2Explorer/<versão>`. Walkers utiliza sua
 implementação oficial de cache HTTP, respeitando cabeçalhos do servidor:
 
 - Linux: `$XDG_CACHE_HOME/fc2-explorer/tiles` ou `$HOME/.cache/fc2-explorer/tiles`.

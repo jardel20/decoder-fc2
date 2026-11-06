@@ -1,4 +1,4 @@
-# Leaf Explorer com Tauri
+# FC2 Explorer com Tauri
 
 A interface em `desktop/` usa Tauri 2 e mantém a biblioteca `fc2-rs` como única
 implementação de leitura e exportação. A interface anterior em `gui/` continua
@@ -140,7 +140,7 @@ identidade da fonte, seleção inválida e recusa de sobrescrita.
 
 Validação local: build de produção do frontend, testes do decoder, testes da
 ponte Rust, testes de navegador, Clippy e compilação nativa Linux. O compositor
-confirmou uma janela `fc2-desktop` com título `Leaf Explorer`. A interação manual
+confirmou uma janela `fc2-desktop` com título `FC2 Explorer`. A interação manual
 com os seletores nativos e os instaladores Windows/Linux não está certificada.
 
 Os treze testes de interface cobrem o layout em 800 × 620, 1240 × 820 e
@@ -151,6 +151,6 @@ sem rolagem externa da janela.
 A fonte Ubuntu Regular/Medium está incorporada, sem modificações, sob Ubuntu Font
 Licence 1.0. Origem e avisos estão em `desktop/public/fonts/`.
 
-![Explorador compacto do Leaf Explorer](images/tauri-workspace.png)
+![Explorador compacto do FC2 Explorer](images/tauri-workspace.png)
 
 Listas suspensas, menus de filtro e cartões de exportação são componentes próprios (`Select.tsx`, `ColumnFilter.tsx`), para seguir o tema do aplicativo em vez do tema do sistema. A barra superior acompanha o tema claro/escuro; o texto não usa corpos menores que 12 px.

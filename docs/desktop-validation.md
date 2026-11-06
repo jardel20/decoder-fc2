@@ -147,7 +147,7 @@ com todas as distribuições ou versões de glibc.
 ## 5. Usar o GitHub para gerar Windows e Linux
 
 O workflow `.github/workflows/gui.yml` oferece execução manual em **Actions →
-Leaf Explorer desktop → Run workflow** depois que os arquivos forem enviados ao
+FC2 Explorer desktop → Run workflow** depois que os arquivos forem enviados ao
 repositório. Ele compila em Windows e Ubuntu, roda testes/lints e disponibiliza
 os artefatos. Não exige publicar nem enviar o FC2. Reveja `git status` e o diff
 preparado antes de commitar, incluindo somente código, documentos, scripts e

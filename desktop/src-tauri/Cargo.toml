@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2024"
 rust-version = "1.90"
 license = "MIT"
-description = "Leaf Explorer desktop, powered by Tauri"
+description = "FC2 Explorer desktop, powered by Tauri"
 
 [lib]
 name = "fc2_desktop"

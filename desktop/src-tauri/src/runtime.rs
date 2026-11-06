@@ -176,5 +176,5 @@ pub fn run() {
             open_tui
         ])
         .run(tauri::generate_context!())
-        .expect("Falha ao iniciar Leaf Explorer");
+        .expect("Falha ao iniciar FC2 Explorer");
 }

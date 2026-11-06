@@ -640,7 +640,7 @@ function App() {
         )}
         <div className="brand">
           <Leaf size={18} />
-          <strong>Leaf Explorer</strong>
+          <strong>FC2 Explorer</strong>
         </div>
         <button
           className="button"
@@ -1344,7 +1344,7 @@ function App() {
           </span>
         )}
         <span className="status-right">
-          {busy || notice || "Leaf Explorer 0.2.0"}
+          {busy || notice || "FC2 Explorer 0.2.0"}
         </span>
       </footer>
       {drag && (
@@ -1409,7 +1409,7 @@ function App() {
         </Dialog>
       )}
       {help && (
-        <Dialog title="Leaf Explorer" close={() => setHelp(false)}>
+        <Dialog title="FC2 Explorer" close={() => setHelp(false)}>
           <h3 className="help-title">Como usar</h3>
           <p>
             Abra um FC2: a visão geográfica mostra todos os pontos. Clique em um
@@ -1436,7 +1436,7 @@ function App() {
           </p>
           <h3 className="help-title">Licenças incorporadas</h3>
           <p className="license">
-            Leaf Explorer: MIT. Ícones Lucide: ISC. Fonte Ubuntu: Ubuntu Font
+            FC2 Explorer: MIT. Ícones Lucide: ISC. Fonte Ubuntu: Ubuntu Font
             Licence 1.0 (public/fonts). Mapas © OpenStreetMap contributors
             (ODbL).
           </p>

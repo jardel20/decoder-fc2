@@ -150,7 +150,7 @@ impl ExplorerApp {
             }
             ui.label(icons::text(Glyph::FileBinary));
             ui.vertical(|ui| {
-                ui.label(egui::RichText::new("Leaf Explorer").size(16.0).strong())
+                ui.label(egui::RichText::new("FC2 Explorer").size(16.0).strong())
                     .on_hover_text("Explorador de arquivos Falker");
                 if matches!(self.state.view, AppView::Explorer) {
                     ui.small("Explorador de arquivos Falker");

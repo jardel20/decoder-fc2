@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
-description = "Native Leaf Explorer using the existing evidence-based decoder"
+description = "Native FC2 Explorer using the existing evidence-based decoder"
 
 [features]
 screenshots = ["eframe/__screenshot"]

@@ -672,8 +672,8 @@ test("map click reveals the work in the list; chart fits width; tabs show no foc
   page,
 }) => {
   await openFixture(page);
-  await expect(page.locator(".brand")).toContainText("Leaf Explorer");
-  await expect(page).toHaveTitle("Leaf Explorer");
+  await expect(page.locator(".brand")).toContainText("FC2 Explorer");
+  await expect(page).toHaveTitle("FC2 Explorer");
   // Clicking a point of a work selects it in the left list as well.
   await page
     .getByRole("textbox", { name: "Buscar trabalhos" })

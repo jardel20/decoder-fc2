@@ -1,4 +1,4 @@
-name: Leaf Explorer desktop
+name: FC2 Explorer desktop
 on:
   workflow_dispatch:
   push:
