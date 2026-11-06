@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "FC2 Explorer",
+  "productName": "Leaf Explorer",
   "version": "0.2.0",
   "identifier": "io.github.jardel20.fc2explorer",
   "build": {
@@ -10,7 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "label": "main", "title": "FC2 Explorer", "width": 1240, "height": 820, "minWidth": 800, "minHeight": 620, "backgroundColor": "#f5f6f8" }],
+    "windows": [{ "label": "main", "title": "Leaf Explorer", "width": 1240, "height": 820, "minWidth": 800, "minHeight": 620, "backgroundColor": "#f5f6f8" }],
     "security": {
       "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
     }

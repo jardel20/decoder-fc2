@@ -8,11 +8,15 @@ export interface WorkSummary {
   coordinates: number;
   warnings: number;
   errors: string[];
+  directory: string;
+  notes: string[];
   first_date: string | null;
   last_date: string | null;
 }
 export interface SourceSummary {
   name: string;
+  path: string;
+  crc_verified: number;
   sha256: string;
   size: number;
   records: number;
@@ -28,6 +32,9 @@ export interface Measurement {
   time: string | null;
   latitude: number | null;
   longitude: number | null;
+  chlorophyll_a_tenths: number;
+  chlorophyll_b_tenths: number;
+  chlorophyll_total_tenths: number;
   chlorophyll_a_index: string;
   chlorophyll_b_index: string;
   chlorophyll_total_index: string;
@@ -52,4 +59,22 @@ export interface ExportResult {
   failures: number;
   records: number;
   errors: string[];
+}
+export interface Location {
+  work: number;
+  work_number: number;
+  work_name: string;
+  group_index: number;
+  group: number;
+  record: number;
+  id: number;
+  point: number;
+  date: string | null;
+  time: string | null;
+  a: string;
+  b: string;
+  total: string;
+  latitude: number;
+  longitude: number;
+  warnings: string[];
 }

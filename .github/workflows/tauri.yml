@@ -1,4 +1,4 @@
-name: FC2 Explorer Tauri
+name: Leaf Explorer Tauri
 on:
   workflow_dispatch:
   pull_request:

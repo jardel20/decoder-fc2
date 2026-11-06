@@ -57,6 +57,41 @@ async fn get_work(
 }
 
 #[tauri::command]
+async fn get_locations(
+    state: State<'_, Session>,
+    source: String,
+) -> Result<Vec<crate::Location>, String> {
+    let loaded = current(&state)?;
+    tauri::async_runtime::spawn_blocking(move || crate::locations(&loaded, &source))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_tile(z: u8, x: u32, y: u32) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::tiles::fetch(z, x, y))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn offline_plan(bounds: crate::tiles::Bounds) -> Result<crate::tiles::Plan, String> {
+    crate::tiles::plan(
+        bounds,
+        crate::tiles::MAX_OFFLINE_ZOOM,
+        crate::tiles::MAX_OFFLINE_TILES,
+        &crate::tiles::cache_root(),
+    )
+}
+
+#[tauri::command]
+async fn prefetch_tile(z: u8, x: u32, y: u32) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::tiles::ensure(z, x, y))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn export_selection(
     state: State<'_, Session>,
     source: String,
@@ -112,6 +147,11 @@ async fn export_selection(
 }
 
 #[tauri::command]
+fn open_tui(path: Option<String>) -> Result<(), String> {
+    crate::terminal::launch(path.as_deref().map(std::path::Path::new))
+}
+
+#[tauri::command]
 fn initial_path() -> Option<String> {
     std::env::args_os()
         .nth(1)
@@ -127,9 +167,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_source,
             get_work,
+            get_locations,
+            get_tile,
+            offline_plan,
+            prefetch_tile,
             export_selection,
-            initial_path
+            initial_path,
+            open_tui
         ])
         .run(tauri::generate_context!())
-        .expect("Falha ao iniciar FC2 Explorer");
+        .expect("Falha ao iniciar Leaf Explorer");
 }

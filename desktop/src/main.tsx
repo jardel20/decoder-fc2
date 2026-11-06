@@ -11,19 +11,23 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   ArrowDownToLine,
   ArrowDown,
+  ArrowLeft,
+  ArrowRight,
   ArrowUp,
   BarChart3,
   Check,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
-  Database,
   FileUp,
   FolderOpen,
   Info,
+  Leaf,
   LoaderCircle,
   MapPin,
   Moon,
+  RefreshCw,
+  Terminal,
   Search,
   ShieldCheck,
   Sun,
@@ -33,17 +37,34 @@ import {
 } from "lucide-react";
 import type {
   ExportResult,
+  Location,
   Measurement,
   SourceSummary,
   WorkDetail,
 } from "./types";
+import { ChartPanel } from "./ChartPanel";
+import { MapPanel, type MapFocus } from "./MapPanel";
+import { Select } from "./Select";
+import {
+  ColumnHeader,
+  isActive,
+  matches,
+  type ColumnFilterValue,
+} from "./ColumnFilter";
+import type { MapPoint } from "./geo";
+import { warningMessage } from "./warnings";
 import "./styles.css";
 const number = (n: number) => n.toLocaleString("pt-BR");
 const date = (s: string | null) => (s ? s.split("-").reverse().join("/") : "—");
 const value = (s: string | number | null | undefined) =>
   s == null ? "—" : String(s).replace(".", ",");
 const PAGE_SIZE = 75;
-type Row = Measurement & { group: number; source_file: string; index: number };
+type Row = Measurement & {
+  group: number;
+  group_index: number;
+  source_file: string;
+  index: number;
+};
 type SortKey =
   | "id"
   | "group"
@@ -55,17 +76,68 @@ type SortKey =
   | "warnings";
 const tabs = [
   { id: "table", name: "Medições", icon: Table2 },
+  { id: "map", name: "Mapa", icon: MapPin },
   { id: "chart", name: "Gráficos", icon: BarChart3 },
-  { id: "map", name: "Coordenadas", icon: MapPin },
   { id: "source", name: "Metadados", icon: ShieldCheck },
+  { id: "export", name: "Exportação", icon: ArrowDownToLine },
 ];
+const COLUMNS: [SortKey, string, "number" | "text" | "warnings"][] = [
+  ["id", "ID", "number"],
+  ["group", "Grupo", "number"],
+  ["point", "Ponto", "number"],
+  ["date", "Data / hora", "text"],
+  ["chlorophyll_a_index", "Índice A", "number"],
+  ["chlorophyll_b_index", "Índice B", "number"],
+  ["chlorophyll_total_index", "Total", "number"],
+  ["warnings", "Avisos", "warnings"],
+];
+const EXPORT_MODES = [
+  {
+    id: "simple",
+    title: "Simples",
+    text: "Planilhas XLSX por trabalho, prontas para análise.",
+  },
+  {
+    id: "complete",
+    title: "Completo",
+    text: "Planilhas, auditoria e bytes preservados para rastreabilidade.",
+  },
+  {
+    id: "json",
+    title: "JSON de auditoria",
+    text: "Estrutura, registros e origem de um único trabalho em um arquivo.",
+  },
+] as const;
+const toPoint = (l: Location): MapPoint => ({
+  key: `${l.work}-${l.group_index}-${l.record}`,
+  work: l.work,
+  workName: l.work_name,
+  workNumber: l.work_number,
+  groupIndex: l.group_index,
+  group: l.group,
+  record: l.record,
+  id: l.id,
+  point: l.point,
+  date: l.date,
+  time: l.time,
+  a: l.a,
+  b: l.b,
+  total: l.total,
+  lat: l.latitude,
+  lon: l.longitude,
+  warnings: l.warnings,
+});
 function App() {
   const [source, setSource] = useState<SourceSummary | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [active, setActive] = useState<number | null>(null);
+  const [opened, setOpened] = useState(false);
   const [detail, setDetail] = useState<WorkDetail | null>(null);
   const [detailError, setDetailError] = useState("");
   const [detailAttempt, setDetailAttempt] = useState(0);
+  const [locations, setLocations] = useState<MapPoint[]>([]);
+  const [selKey, setSelKey] = useState<string | null>(null);
+  const [focus, setFocus] = useState<MapFocus | null>(null);
   const [tab, setTab] = useState("table");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
@@ -75,29 +147,42 @@ function App() {
     descending: boolean;
   } | null>(null);
   const [page, setPage] = useState(0);
+  const [colFilters, setColFilters] = useState<
+    Partial<Record<SortKey, ColumnFilterValue>>
+  >({});
   const [group, setGroup] = useState("all");
   const [mode, setMode] = useState("simple");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [result, setResult] = useState<ExportResult | null>(null);
   const [record, setRecord] = useState<Row | null>(null);
   const [help, setHelp] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
   const [drag, setDrag] = useState(false);
-  const [theme, setTheme] = useState(
-    () => localStorage.getItem("fc2-theme") || "light",
+  const [workSort, setWorkSort] = useState<"number" | "name" | "records">(
+    "number",
   );
+  const [workDescending, setWorkDescending] = useState(false);
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem("fc2-theme") || "light";
+    } catch {
+      return "light";
+    }
+  });
   const request = useRef(0);
+  const fileToken = useRef(0);
   const operation = useRef(false);
+  const focusId = useRef(0);
   const selectedWorks = source?.works.filter((w) => selected.has(w.key)) || [];
-  const selectedRecords = selectedWorks.reduce((sum, w) => sum + w.records, 0);
   const activeWork = source?.works.find((w) => w.key === active);
   const rows: Row[] = useMemo(
     () =>
-      detail?.groups.flatMap((g) =>
+      detail?.groups.flatMap((g, groupIndex) =>
         g.records.map((r, index) => ({
           ...r,
           group: g.group,
+          group_index: groupIndex,
           source_file: g.source_file,
           index,
         })),
@@ -106,17 +191,28 @@ function App() {
   );
   const filteredOriginRows = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    const filtered = rows.filter(
+    return rows.filter(
       (r) =>
         (group === "all" || String(r.group) === group) &&
         (!warningsOnly || r.warnings.length > 0) &&
         (!needle ||
           `${r.id} ${r.point} ${r.date || ""} ${date(r.date)} ${r.time || ""}`
             .toLocaleLowerCase()
-            .includes(needle)),
+            .includes(needle)) &&
+        COLUMNS.every(([key, , kind]) => {
+          const f = colFilters[key];
+          if (!isActive(f)) return true;
+          if (kind === "warnings") return matches(f, null, r.warnings.length);
+          if (key === "date")
+            return matches(
+              f,
+              `${r.date || ""} ${date(r.date)} ${r.time || ""}`,
+            );
+          return matches(f, r[key] as string | number);
+        }),
     );
-    return filtered;
-  }, [rows, group, warningsOnly, query]);
+  }, [rows, group, warningsOnly, query, colFilters]);
+  const activeFilters = Object.values(colFilters).filter(isActive).length;
   const filteredRows = useMemo(() => {
     const filtered = [...filteredOriginRows];
     if (sort)
@@ -133,16 +229,71 @@ function App() {
       });
     return filtered;
   }, [filteredOriginRows, sort]);
-  const works =
-    source?.works.filter((w) =>
-      `${w.name} ${w.number}`
-        .toLocaleLowerCase()
-        .includes(search.toLocaleLowerCase()),
-    ) || [];
+  const rowKey = (r: Row) => `${active}-${r.group_index}-${r.index}`;
+  const rowPoint = useCallback(
+    (r: Row): MapPoint | null =>
+      r.latitude == null || r.longitude == null || !detail || active == null
+        ? null
+        : {
+            key: `${active}-${r.group_index}-${r.index}`,
+            work: active,
+            workName: detail.display_name,
+            workNumber: detail.number,
+            groupIndex: r.group_index,
+            group: r.group,
+            record: r.index,
+            id: r.id,
+            point: r.point,
+            date: r.date,
+            time: r.time,
+            a: r.chlorophyll_a_index,
+            b: r.chlorophyll_b_index,
+            total: r.chlorophyll_total_index,
+            lat: r.latitude,
+            lon: r.longitude,
+            warnings: r.warnings,
+          },
+    [detail, active],
+  );
+  const workPoints = useMemo(
+    () =>
+      filteredOriginRows.map(rowPoint).filter((p): p is MapPoint => p != null),
+    [filteredOriginRows, rowPoint],
+  );
+  const works = useMemo(() => {
+    const needle = search.toLocaleLowerCase();
+    const list =
+      source?.works.filter((w) =>
+        `${w.name} ${w.number}`.toLocaleLowerCase().includes(needle),
+      ) || [];
+    list.sort((a, b) => {
+      const diff =
+        workSort === "name"
+          ? a.name.localeCompare(b.name, "pt-BR", { numeric: true })
+          : workSort === "records"
+            ? a.records - b.records
+            : a.number - b.number;
+      return (workDescending ? -diff : diff) || a.key - b.key;
+    });
+    return list;
+  }, [source, search, workSort, workDescending]);
+  const markedWorks = works.filter((w) => selected.has(w.key));
+  const otherWorks = works.filter((w) => !selected.has(w.key));
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem("fc2-theme", theme);
+    try {
+      localStorage.setItem("fc2-theme", theme);
+    } catch {
+      /* preference storage is optional */
+    }
   }, [theme]);
+  const frame = useCallback((work: number | null, from: MapPoint[]) => {
+    if (work == null) return;
+    setFocus({
+      id: ++focusId.current,
+      points: from.filter((p) => p.work === work),
+    });
+  }, []);
   const open = useCallback(async (path?: string) => {
     if (operation.current) return;
     if (!isTauri()) {
@@ -159,13 +310,25 @@ function App() {
       if (data) {
         request.current++;
         setSource(data);
-        setSelected(new Set(data.works.map((w) => w.key)));
-        setActive(data.works[0]?.key ?? null);
+        setSelected(new Set());
+        setActive(null);
+        setOpened(false);
+        setSelKey(null);
         setDetail(null);
         setResult(null);
         setSearch("");
         setTab("table");
-        setExportOpen(false);
+        setFocus(null);
+        setLocations([]);
+        const token = ++fileToken.current;
+        invoke<Location[]>("get_locations", { source: data.sha256 })
+          .then((list) => {
+            // Ignore a late answer for a file that was replaced meanwhile.
+            if (token === fileToken.current) setLocations(list.map(toPoint));
+          })
+          .catch((e) => {
+            if (token === fileToken.current) setError(String(e));
+          });
       }
     } catch (e) {
       setError(String(e));
@@ -215,7 +378,6 @@ function App() {
       if (e.key === "Escape") {
         setRecord(null);
         setHelp(false);
-        if (!operation.current) setExportOpen(false);
       }
     };
     window.addEventListener("keydown", listener);
@@ -231,6 +393,7 @@ function App() {
     setRecord(null);
     setQuery("");
     setWarningsOnly(false);
+    setColFilters({});
     setSort(null);
     invoke<WorkDetail>("get_work", { source: source.sha256, key: active })
       .then((data) => {
@@ -249,6 +412,42 @@ function App() {
     });
     setResult(null);
   }
+  function selectWork(key: number) {
+    setActive(key);
+    setSelKey(null);
+    frame(key, locations);
+  }
+  function openWork(key: number) {
+    if (key !== active) setActive(key);
+    setSelKey(null);
+    setOpened(true);
+    setTab("table");
+  }
+  function back() {
+    setOpened(false);
+    setNotice("");
+    frame(active, locations);
+  }
+  function selectPoint(p: MapPoint) {
+    if (p.work !== active) setActive(p.work);
+    setSelKey(p.key);
+    // The list must show the work the point belongs to, even when filtered out.
+    const w = source?.works.find((x) => x.key === p.work);
+    if (
+      w &&
+      search &&
+      !`${w.name} ${w.number}`
+        .toLocaleLowerCase()
+        .includes(search.toLocaleLowerCase())
+    )
+      setSearch("");
+  }
+  useEffect(() => {
+    if (opened) return;
+    document
+      .querySelector(".work-list .work-item.active")
+      ?.scrollIntoView({ block: "nearest" });
+  }, [active, opened, search, selected, workSort, workDescending]);
   function sortBy(key: SortKey) {
     setSort((old) => ({
       key,
@@ -256,8 +455,12 @@ function App() {
     }));
     setPage(0);
   }
-  async function exportData() {
-    if (!source || !selected.size || operation.current) return;
+  async function exportData(keys: number[]) {
+    if (!source || !keys.length || operation.current) return;
+    if (mode === "json" && keys.length !== 1) {
+      setError("Marque um único trabalho para exportar JSON.");
+      return;
+    }
     operation.current = true;
     setBusy("Validando a origem e exportando…");
     setError("");
@@ -266,7 +469,7 @@ function App() {
       setResult(
         await invoke<ExportResult | null>("export_selection", {
           source: source.sha256,
-          keys: [...selected],
+          keys,
           mode,
         }),
       );
@@ -277,10 +480,37 @@ function App() {
       setBusy("");
     }
   }
-  function closeExport() {
-    if (!operation.current) setExportOpen(false);
+  async function openTui() {
+    if (!isTauri()) {
+      setError("A TUI está disponível no aplicativo desktop.");
+      return;
+    }
+    try {
+      await invoke("open_tui", { path: source?.path ?? null });
+      setNotice("TUI aberta em um terminal separado.");
+    } catch (e) {
+      setError(String(e));
+    }
   }
-  function tableHead(label: string, key: SortKey) {
+  const clearFocus = useCallback(() => setFocus(null), []);
+  function showOnMap(r: Row) {
+    const point = rowPoint(r);
+    if (!point) return;
+    setSelKey(point.key);
+    setFocus({ id: ++focusId.current, points: [point] });
+    setRecord(null);
+    setOpened(true);
+    setTab("map");
+  }
+  function inspectSelected() {
+    const row = rows.find((r) => rowKey(r) === selKey);
+    if (row) setRecord(row);
+  }
+  function tableHead(
+    label: string,
+    key: SortKey,
+    kind: "number" | "text" | "warnings",
+  ) {
     return (
       <th
         key={key}
@@ -292,20 +522,125 @@ function App() {
             : "none"
         }
       >
-        <button onClick={() => sortBy(key)}>
-          {label}
-          {sort?.key === key &&
-            (sort.descending ? <ArrowDown size={12} /> : <ArrowUp size={12} />)}
-        </button>
+        <ColumnHeader
+          label={label}
+          kind={kind}
+          sorted={
+            sort?.key === key
+              ? sort.descending
+                ? "descending"
+                : "ascending"
+              : "none"
+          }
+          onSort={() => sortBy(key)}
+          filter={colFilters[key]}
+          onFilter={(f) => {
+            setColFilters((old) => ({ ...old, [key]: f }));
+            setPage(0);
+          }}
+        />
       </th>
+    );
+  }
+  const resultNotice = result && (
+    <div
+      className={`notice export-result ${result.failures ? "warning" : "success"}`}
+      role="status"
+    >
+      <div>
+        <strong>
+          {result.failures
+            ? "Exportação com pendências"
+            : "Exportação concluída"}
+        </strong>
+        <p>
+          {mode === "json"
+            ? "Auditoria JSON salva."
+            : `${result.workbooks} planilhas; ${result.failures} trabalhos bloqueados.`}
+        </p>
+        <code>{result.path}</code>
+        {result.errors.map((s, i) => (
+          <p key={i}>{s}</p>
+        ))}
+      </div>
+    </div>
+  );
+  const exportModeSelect = (
+    <Select
+      label="Formato de exportação"
+      value={mode}
+      disabled={!!busy}
+      onChange={(v) => {
+        setMode(v);
+        setResult(null);
+      }}
+      options={[
+        { value: "simple", label: "Simples: XLSX" },
+        { value: "complete", label: "Completo: XLSX + auditoria" },
+        { value: "json", label: "JSON de auditoria (um trabalho)" },
+      ]}
+    />
+  );
+  const selectedPoint = selKey
+    ? (locations.find((p) => p.key === selKey) ??
+      workPoints.find((p) => p.key === selKey) ??
+      null)
+    : null;
+  const firstPoint =
+    active != null ? locations.find((p) => p.work === active) : undefined;
+  function workItem(w: SourceSummary["works"][number]) {
+    return (
+      <div
+        key={w.key}
+        className={`work-item ${active === w.key ? "active" : ""}`}
+        onDoubleClick={() => openWork(w.key)}
+      >
+        <input
+          aria-label={`Marcar ${w.name}`}
+          type="checkbox"
+          checked={selected.has(w.key)}
+          onChange={() => {
+            toggle(w.key);
+            selectWork(w.key);
+          }}
+        />
+        <button
+          className="work-button"
+          aria-pressed={active === w.key}
+          aria-label={`Trabalho ${w.name}`}
+          onClick={() => selectWork(w.key)}
+        >
+          <span className="work-name">
+            {w.number} · {w.name}
+          </span>
+          <span className="work-counts">
+            {number(w.records)} {w.records === 1 ? "registro" : "registros"} ·{" "}
+            {w.groups} {w.groups === 1 ? "grupo" : "grupos"}
+          </span>
+        </button>
+        {(w.errors.length > 0 || w.warnings > 0) && (
+          <span
+            className={`work-warning ${w.errors.length ? "danger" : ""}`}
+            title={`${w.errors.length} erros; ${w.warnings} avisos`}
+          >
+            <TriangleAlert size={13} />
+          </span>
+        )}
+      </div>
     );
   }
   return (
     <div className="app-shell">
       <header className="topbar">
+        {source && opened && (
+          <button className="button" onClick={back}>
+            <ArrowLeft size={16} />
+            Voltar
+          </button>
+        )}
         <div className="brand">
-          <Database size={18} />
-          <strong>FC2 Explorer</strong>
+          <Leaf size={18} />
+          <strong>Leaf Explorer</strong>
         </div>
         <button
           className="button"
@@ -316,21 +651,29 @@ function App() {
           Abrir FC2
         </button>
         {source && (
-          <span className="header-source" title={source.name}>
+          <button
+            className="icon-button"
+            aria-label="Recarregar o FC2 do disco"
+            title="Recarregar o FC2 do disco"
+            disabled={!!busy}
+            onClick={() => void open(source.path)}
+          >
+            <RefreshCw size={16} />
+          </button>
+        )}
+        {source && (
+          <span className="header-source" title={source.path}>
             {source.name}
           </span>
         )}
         <div className="header-actions">
           <button
-            className="button primary"
-            disabled={!source || !selected.size || !!busy}
-            onClick={() => {
-              setExportOpen(true);
-              setResult(null);
-            }}
+            className="icon-button"
+            aria-label="Abrir TUI"
+            title="Abrir a TUI em um terminal separado"
+            onClick={() => void openTui()}
           >
-            <ArrowDownToLine size={16} />
-            Exportar{source && ` (${selected.size})`}
+            <Terminal size={17} />
           </button>
           <button
             className="icon-button"
@@ -377,7 +720,7 @@ function App() {
           <div className="open-file">
             <FolderOpen size={36} strokeWidth={1.3} />
             <h1>Abrir arquivo FC2</h1>
-            <p>Trabalhos, medições e exportação.</p>
+            <p>Trabalhos, mapa, medições e exportação.</p>
             <button
               className="button primary"
               disabled={!!busy}
@@ -391,20 +734,19 @@ function App() {
             </small>
           </div>
         </main>
-      ) : (
+      ) : !opened || !activeWork ? (
         <div className="explorer-layout">
           <aside className="work-sidebar" aria-label="Trabalhos">
             <div className="sidebar-title">
               <h2>
                 Trabalhos <span>{source.works.length}</span>
               </h2>
-              <span>{selected.size} selecionados</span>
             </div>
             <label className="search">
               <Search size={15} />
               <input
                 aria-label="Buscar trabalhos"
-                placeholder="Nome ou número"
+                placeholder="Nome ou identificador"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -418,379 +760,575 @@ function App() {
                 </button>
               )}
             </label>
-            <div className="selection-toolbar">
+            <div className="sort-toolbar">
+              <Select
+                label="Ordenar trabalhos"
+                value={workSort}
+                onChange={(v) => setWorkSort(v as typeof workSort)}
+                options={[
+                  { value: "number", label: "Ordenar: ID" },
+                  { value: "name", label: "Ordenar: nome" },
+                  { value: "records", label: "Ordenar: registros" },
+                ]}
+              />
               <label>
                 <input
                   type="checkbox"
-                  aria-label="Selecionar trabalhos visíveis"
+                  checked={workDescending}
+                  onChange={(e) => setWorkDescending(e.target.checked)}
+                />
+                Decrescente
+              </label>
+            </div>
+            <div className="selection-toolbar">
+              <label title="Selecionar ou desmarcar todos os trabalhos do arquivo, inclusive fora da busca">
+                <input
+                  type="checkbox"
+                  aria-label="Marcar todos os trabalhos"
                   checked={
-                    works.length > 0 && works.every((w) => selected.has(w.key))
+                    source.works.length > 0 &&
+                    selected.size === source.works.length
                   }
                   onChange={(e) => {
-                    const next = new Set(selected);
-                    works.forEach((w) =>
-                      e.target.checked ? next.add(w.key) : next.delete(w.key),
+                    setSelected(
+                      e.target.checked
+                        ? new Set(source.works.map((w) => w.key))
+                        : new Set(),
                     );
-                    setSelected(next);
                     setResult(null);
                   }}
                 />
-                Visíveis
-              </label>
-              <button
-                className="text-button"
-                onClick={() => {
-                  setSelected(new Set(source.works.map((w) => w.key)));
-                  setResult(null);
-                }}
-              >
                 Todos
-              </button>
-              <button
-                className="text-button"
-                onClick={() => {
-                  setSelected(new Set());
-                  setResult(null);
-                }}
-              >
-                Limpar
-              </button>
-            </div>
-            <div className="work-list">
-              {works.map((w) => (
-                <div
-                  key={w.key}
-                  className={`work-item ${active === w.key ? "active" : ""}`}
+              </label>
+              {selected.size > 0 && (
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    setSelected(new Set());
+                    setResult(null);
+                  }}
                 >
-                  <input
-                    aria-label={`Selecionar ${w.name}`}
-                    type="checkbox"
-                    checked={selected.has(w.key)}
-                    onChange={() => toggle(w.key)}
-                  />
-                  <button
-                    className="work-button"
-                    aria-pressed={active === w.key}
-                    aria-label={`Abrir trabalho ${w.name}`}
-                    onClick={() => setActive(w.key)}
-                  >
-                    <span className="work-name">{w.name}</span>
-                    <span className="work-counts">
-                      ID {w.number} · {number(w.records)} medições · {w.groups}{" "}
-                      gr.
-                    </span>
-                  </button>
-                  {(w.errors.length > 0 || w.warnings > 0) && (
-                    <span
-                      className={`work-warning ${w.errors.length ? "danger" : ""}`}
-                      title={`${w.errors.length} erros; ${w.warnings} avisos`}
-                    >
-                      <TriangleAlert size={13} />
-                    </span>
-                  )}
-                </div>
-              ))}
+                  Limpar marcações
+                </button>
+              )}
+            </div>
+            <p className="list-hint">Clique seleciona; duplo clique abre.</p>
+            <div className="work-list">
+              {markedWorks.length > 0 && (
+                <>
+                  <h3 className="list-section">
+                    Selecionados ({markedWorks.length})
+                  </h3>
+                  {markedWorks.map(workItem)}
+                  {otherWorks.length > 0 && <hr className="list-divider" />}
+                </>
+              )}
+              {otherWorks.map(workItem)}
               {!works.length && (
                 <p className="list-empty">Nenhum trabalho encontrado.</p>
               )}
             </div>
             <div className="sidebar-summary">
               <span>
-                {number(source.records)} medições · {source.groups} grupos
+                {works.length} visíveis • {selected.size} marcados
               </span>
-              <span>{number(selectedRecords)} medições selecionadas</span>
+              {exportModeSelect}
+              <button
+                className="button primary"
+                disabled={!selected.size || !!busy}
+                onClick={() => void exportData([...selected])}
+              >
+                {busy.startsWith("Validando") ? (
+                  <LoaderCircle size={15} className="spin" />
+                ) : (
+                  <ArrowDownToLine size={15} />
+                )}
+                Exportar marcados
+              </button>
+              {resultNotice}
             </div>
           </aside>
-          <main className="work-main" aria-busy={!!busy}>
+          <main className="explorer-map" aria-label="Visão geográfica">
+            <MapPanel
+              title="Visão geográfica"
+              points={locations}
+              region={locations}
+              selectedKey={selKey}
+              relatedWork={active}
+              onSelect={selectPoint}
+              focus={focus}
+              onFocused={clearFocus}
+              fitKey={`all|${locations.length}`}
+              fill
+            />
+          </main>
+          <aside className="explorer-details" aria-label="Detalhes do trabalho">
             {activeWork ? (
               <>
-                <section className="work-heading">
-                  <div>
-                    <h1>{activeWork.name}</h1>
-                    <span className="work-id">ID {activeWork.number}</span>
-                    <span
-                      className={`badge ${activeWork.errors.length ? "danger" : "success"}`}
-                    >
-                      {activeWork.errors.length ? (
-                        <TriangleAlert size={12} />
-                      ) : (
-                        <Check size={12} />
-                      )}{" "}
-                      {activeWork.errors.length
-                        ? "Estrutura com erros"
-                        : "Estrutura interpretada"}
-                    </span>
-                  </div>
-                  <div className="work-facts">
-                    <span>
-                      <strong>{number(activeWork.records)}</strong> medições
-                    </span>
-                    <span>
-                      <strong>{activeWork.groups}</strong> grupos
-                    </span>
-                    <span>
-                      <strong>{number(activeWork.points)}</strong> pontos
-                    </span>
-                    <span>
-                      <strong>{number(activeWork.coordinates)}</strong> com
-                      coordenadas
-                    </span>
-                    {activeWork.warnings > 0 && (
-                      <span className="warning-text">
-                        {activeWork.warnings}{" "}
-                        {activeWork.warnings === 1 ? "aviso" : "avisos"}
-                      </span>
-                    )}
-                    <span className="period">
-                      {date(activeWork.first_date)}
-                      {activeWork.last_date &&
-                      activeWork.last_date !== activeWork.first_date
-                        ? ` – ${date(activeWork.last_date)}`
-                        : ""}
-                    </span>
-                  </div>
-                </section>
-                <div
-                  className="tabs"
-                  role="tablist"
-                  aria-label="Visualização do trabalho"
+                <h2>{activeWork.name}</h2>
+                <p>
+                  ID {activeWork.number} • {number(activeWork.records)}{" "}
+                  registros • {activeWork.groups} grupos
+                </p>
+                <p>
+                  {number(activeWork.coordinates)} coordenadas numéricas •{" "}
+                  {number(activeWork.warnings)}{" "}
+                  {activeWork.warnings === 1
+                    ? "registro com aviso"
+                    : "registros com avisos"}
+                </p>
+                <p
+                  className={`badge ${activeWork.errors.length ? "danger" : "success"}`}
                 >
-                  {tabs.map((t) => (
-                    <button
-                      key={t.id}
-                      role="tab"
-                      aria-selected={tab === t.id}
-                      className={tab === t.id ? "active" : ""}
-                      onClick={() => setTab(t.id)}
-                    >
-                      <t.icon size={15} />
-                      {t.name}
-                    </button>
-                  ))}
-                </div>
-                {detailError ? (
-                  <div className="empty-state" role="alert">
-                    <TriangleAlert size={24} />
-                    <p>{detailError}</p>
+                  {activeWork.errors.length ? (
+                    <TriangleAlert size={12} />
+                  ) : (
+                    <Check size={12} />
+                  )}
+                  {activeWork.errors.length
+                    ? "Estrutura com erros; exportação pode ser bloqueada"
+                    : "Estrutura interpretada"}
+                </p>
+                <small>
+                  Equivalência Leaf não presumida. Datum GPS não confirmado.
+                </small>
+                <code className="directory">{activeWork.directory}</code>
+                {selectedPoint && selectedPoint.work === active ? (
+                  <div className="details-block">
+                    <strong>
+                      Registro {selectedPoint.id} • grupo {selectedPoint.group}
+                    </strong>
+                    <span>Latitude {selectedPoint.lat}</span>
+                    <span>Longitude {selectedPoint.lon}</span>
                     <button
                       className="button"
-                      onClick={() => setDetailAttempt((n) => n + 1)}
+                      disabled={!detail}
+                      onClick={inspectSelected}
                     >
-                      Tentar novamente
+                      <Info size={15} />
+                      Inspecionar registro
                     </button>
                   </div>
-                ) : !detail ? (
-                  <div className="empty-state" role="status">
-                    <LoaderCircle size={24} className="spin" />
-                    <p>Carregando medições…</p>
-                  </div>
                 ) : (
-                  <div
-                    className={`tab-content ${tab === "table" ? "table-content" : ""}`}
-                    role="tabpanel"
-                  >
-                    {tab !== "source" && (
-                      <div className="record-toolbar">
-                        <label className="search record-search">
-                          <Search size={14} />
-                          <input
-                            aria-label="Buscar medições"
-                            placeholder="ID, ponto, data ou hora"
-                            value={query}
-                            onChange={(e) => {
-                              setQuery(e.target.value);
-                              setPage(0);
-                            }}
-                          />
-                        </label>
-                        <select
-                          aria-label="Filtrar grupo"
-                          value={group}
-                          onChange={(e) => {
-                            setGroup(e.target.value);
-                            setPage(0);
-                          }}
-                        >
-                          <option value="all">Todos os grupos</option>
-                          {detail.groups.map((g) => (
-                            <option key={g.group} value={g.group}>
-                              Grupo {g.group}
-                            </option>
-                          ))}
-                        </select>
-                        <label className="warning-filter">
-                          <input
-                            type="checkbox"
-                            checked={warningsOnly}
-                            onChange={(e) => {
-                              setWarningsOnly(e.target.checked);
-                              setPage(0);
-                            }}
-                          />
-                          Somente avisos
-                        </label>
-                        <span className="record-count">
-                          {number(filteredRows.length)} / {number(rows.length)}{" "}
-                          registros
-                        </span>
-                      </div>
-                    )}
-                    {tab === "table" && (
-                      <>
-                        <div className="table-scroll">
-                          <table className="measure-table">
-                            <thead>
-                              <tr>
-                                {tableHead("ID", "id")}
-                                {tableHead("Grupo", "group")}
-                                {tableHead("Ponto", "point")}
-                                {tableHead("Data / hora", "date")}
-                                {tableHead("Índice A", "chlorophyll_a_index")}
-                                {tableHead("Índice B", "chlorophyll_b_index")}
-                                {tableHead("Total", "chlorophyll_total_index")}
-                                <th>Latitude</th>
-                                <th>Longitude</th>
-                                {tableHead("Avisos", "warnings")}
-                                <th />
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {filteredRows
-                                .slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
-                                .map((r) => (
-                                  <tr
-                                    key={`${r.group}-${r.index}`}
-                                    onClick={() => setRecord(r)}
-                                  >
-                                    <td>{r.id}</td>
-                                    <td>{r.group}</td>
-                                    <td>{r.point}</td>
-                                    <td className="date-cell">
-                                      {date(r.date)}{" "}
-                                      <span>{r.time || "—"}</span>
-                                    </td>
-                                    <td>{value(r.chlorophyll_a_index)}</td>
-                                    <td>{value(r.chlorophyll_b_index)}</td>
-                                    <td className="total-value">
-                                      {value(r.chlorophyll_total_index)}
-                                    </td>
-                                    <td>{r.latitude?.toFixed(6) || "—"}</td>
-                                    <td>{r.longitude?.toFixed(6) || "—"}</td>
-                                    <td
-                                      className={
-                                        r.warnings.length ? "warning-text" : ""
-                                      }
-                                    >
-                                      {r.warnings.length || "—"}
-                                    </td>
-                                    <td>
-                                      <button
-                                        className="icon-button inspect-button"
-                                        aria-label={`Inspecionar medição ${r.id} do grupo ${r.group}`}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setRecord(r);
-                                        }}
-                                      >
-                                        <Info size={14} />
-                                      </button>
-                                    </td>
-                                  </tr>
-                                ))}
-                            </tbody>
-                          </table>
-                          {!filteredRows.length && (
-                            <div className="empty-state">
-                              <p>Nenhuma medição para os filtros atuais.</p>
-                            </div>
-                          )}
-                        </div>
-                        <div className="table-bottom">
-                          <span>
-                            Índices do instrumento · Ausências: — · Clique no
-                            registro para inspecionar
-                          </span>
-                          <div className="pagination">
-                            <button
-                              className="icon-button"
-                              aria-label="Página anterior"
-                              disabled={page === 0}
-                              onClick={() => setPage(page - 1)}
-                            >
-                              <ChevronLeft size={15} />
-                            </button>
-                            <span>
-                              {page + 1} de{" "}
-                              {Math.max(
-                                1,
-                                Math.ceil(filteredRows.length / PAGE_SIZE),
-                              )}
-                            </span>
-                            <button
-                              className="icon-button"
-                              aria-label="Próxima página"
-                              disabled={
-                                (page + 1) * PAGE_SIZE >= filteredRows.length
-                              }
-                              onClick={() => setPage(page + 1)}
-                            >
-                              <ChevronRight size={15} />
-                            </button>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                    {tab === "chart" && <Chart rows={filteredOriginRows} />}
-                    {tab === "map" && (
-                      <CoordinatePlot rows={filteredOriginRows} />
-                    )}
-                    {tab === "source" && (
-                      <div className="audit-content">
-                        <h3>Origem</h3>
-                        <dl className="metadata">
-                          <dt>Arquivo</dt>
-                          <dd>{source.name}</dd>
-                          <dt>Tamanho</dt>
-                          <dd>{number(source.size)} bytes</dd>
-                          <dt>SHA-256</dt>
-                          <dd className="mono">{source.sha256}</dd>
-                          <dt>Diretório</dt>
-                          <dd>{detail.directory}</dd>
-                          <dt>Configuração</dt>
-                          <dd>
-                            {detail.configuration_file || "Não disponível"}
-                          </dd>
-                          <dt>Origem do nome</dt>
-                          <dd>{detail.name_source}</dd>
-                        </dl>
-                        <h3>Avisos e limitações</h3>
-                        {[
-                          ...detail.errors,
-                          ...detail.warnings,
-                          ...source.limitations,
-                        ].map((s, i) => (
-                          <p className="limitation" key={i}>
-                            <Info size={14} />
-                            {s}
-                          </p>
-                        ))}
-                        <p className="quiet-note">
-                          Equivalência Leaf não presumida. Datum das coordenadas
-                          não confirmado.
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                  firstPoint && (
+                    <div className="details-block">
+                      <small>
+                        Primeira coordenada disponível na ordem do arquivo:
+                      </small>
+                      <span>Latitude {firstPoint.lat}</span>
+                      <span>Longitude {firstPoint.lon}</span>
+                      <button
+                        className="button"
+                        onClick={() => {
+                          setSelKey(firstPoint.key);
+                          setFocus({
+                            id: ++focusId.current,
+                            points: [firstPoint],
+                          });
+                        }}
+                      >
+                        <MapPin size={15} />
+                        Centralizar no mapa
+                      </button>
+                    </div>
+                  )
                 )}
+                {activeWork.errors.map((s, i) => (
+                  <p className="notice error" key={i}>
+                    {s}
+                  </p>
+                ))}
+                {activeWork.notes.map((s, i) => (
+                  <small key={i}>{s}</small>
+                ))}
+                <button
+                  className="button primary open-work"
+                  onClick={() => openWork(activeWork.key)}
+                >
+                  <ArrowRight size={15} />
+                  Abrir trabalho
+                </button>
               </>
             ) : (
-              <div className="empty-state">
-                <Database size={28} />
-                <p>Nenhum trabalho ativo no arquivo.</p>
-              </div>
+              <p className="list-empty">
+                Selecione um trabalho na lista ou clique em um ponto do mapa.
+              </p>
             )}
-          </main>
+          </aside>
         </div>
+      ) : (
+        <main className="work-view" aria-busy={!!busy}>
+          <section className="work-heading">
+            <div>
+              <h1>{activeWork.name}</h1>
+              <span className="work-id">ID {activeWork.number}</span>
+              <span
+                className={`badge ${activeWork.errors.length ? "danger" : "success"}`}
+              >
+                {activeWork.errors.length ? (
+                  <TriangleAlert size={12} />
+                ) : (
+                  <Check size={12} />
+                )}{" "}
+                {activeWork.errors.length
+                  ? "Estrutura com erros"
+                  : "Estrutura interpretada"}
+              </span>
+            </div>
+            <div className="work-facts">
+              <span>
+                <strong>{number(activeWork.records)}</strong> registros
+              </span>
+              <span>
+                <strong>{activeWork.groups}</strong> grupos
+              </span>
+              <span>
+                <strong>{number(activeWork.points)}</strong> pontos
+              </span>
+              <span>
+                <strong>{number(activeWork.coordinates)}</strong> coordenadas
+              </span>
+              {activeWork.warnings > 0 && (
+                <span className="warning-text">
+                  {activeWork.warnings}{" "}
+                  {activeWork.warnings === 1
+                    ? "registro com aviso"
+                    : "registros com avisos"}
+                </span>
+              )}
+              <span className="period">
+                {date(activeWork.first_date)}
+                {activeWork.last_date &&
+                activeWork.last_date !== activeWork.first_date
+                  ? ` – ${date(activeWork.last_date)}`
+                  : ""}
+              </span>
+            </div>
+          </section>
+          <div
+            className="tabs"
+            role="tablist"
+            aria-label="Visualização do trabalho"
+          >
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={tab === t.id}
+                className={tab === t.id ? "active" : ""}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setTab(t.id)}
+              >
+                <t.icon size={15} />
+                {t.name}
+              </button>
+            ))}
+          </div>
+          {detailError ? (
+            <div className="empty-state" role="alert">
+              <TriangleAlert size={24} />
+              <p>{detailError}</p>
+              <button
+                className="button"
+                onClick={() => setDetailAttempt((n) => n + 1)}
+              >
+                Tentar novamente
+              </button>
+            </div>
+          ) : !detail ? (
+            <div className="empty-state" role="status">
+              <LoaderCircle size={24} className="spin" />
+              <p>Carregando medições…</p>
+            </div>
+          ) : (
+            <div
+              className={`tab-content ${tab === "table" ? "table-content" : ""} ${tab === "map" ? "map-content" : ""}`}
+              role="tabpanel"
+            >
+              {(tab === "table" || tab === "map" || tab === "chart") && (
+                <div className="record-toolbar">
+                  <label className="search record-search">
+                    <Search size={14} />
+                    <input
+                      aria-label="Buscar medições"
+                      placeholder="ID, ponto, data ou hora"
+                      value={query}
+                      onChange={(e) => {
+                        setQuery(e.target.value);
+                        setPage(0);
+                      }}
+                    />
+                  </label>
+                  <Select
+                    label="Filtrar grupo"
+                    value={group}
+                    onChange={(v) => {
+                      setGroup(v);
+                      setPage(0);
+                    }}
+                    options={[
+                      { value: "all", label: "Todos os grupos" },
+                      ...detail.groups.map((g) => ({
+                        value: String(g.group),
+                        label: `Grupo ${g.group}`,
+                      })),
+                    ]}
+                  />
+                  <label className="warning-filter">
+                    <input
+                      type="checkbox"
+                      checked={warningsOnly}
+                      onChange={(e) => {
+                        setWarningsOnly(e.target.checked);
+                        setPage(0);
+                      }}
+                    />
+                    Somente avisos
+                  </label>
+                  <span className="record-count">
+                    {number(filteredRows.length)} / {number(rows.length)}{" "}
+                    registros
+                  </span>
+                  {activeFilters > 0 && (
+                    <button
+                      className="text-button"
+                      onClick={() => {
+                        setColFilters({});
+                        setPage(0);
+                      }}
+                    >
+                      Limpar {activeFilters}{" "}
+                      {activeFilters === 1 ? "filtro" : "filtros"} de coluna
+                    </button>
+                  )}
+                </div>
+              )}
+              {tab === "table" && (
+                <>
+                  <div className="table-scroll">
+                    <table className="measure-table">
+                      <thead>
+                        <tr>
+                          {tableHead("ID", "id", "number")}
+                          {tableHead("Grupo", "group", "number")}
+                          {tableHead("Ponto", "point", "number")}
+                          {tableHead("Data / hora", "date", "text")}
+                          {tableHead(
+                            "Índice A",
+                            "chlorophyll_a_index",
+                            "number",
+                          )}
+                          {tableHead(
+                            "Índice B",
+                            "chlorophyll_b_index",
+                            "number",
+                          )}
+                          {tableHead(
+                            "Total",
+                            "chlorophyll_total_index",
+                            "number",
+                          )}
+                          <th>Latitude</th>
+                          <th>Longitude</th>
+                          {tableHead("Avisos", "warnings", "warnings")}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredRows
+                          .slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+                          .map((r) => (
+                            <tr
+                              key={`${r.group}-${r.index}`}
+                              className={rowKey(r) === selKey ? "selected" : ""}
+                              tabIndex={0}
+                              title="Abrir detalhes do registro"
+                              onClick={() => {
+                                setSelKey(rowKey(r));
+                                setRecord(r);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  setSelKey(rowKey(r));
+                                  setRecord(r);
+                                }
+                              }}
+                            >
+                              <td>{r.id}</td>
+                              <td>{r.group}</td>
+                              <td>{r.point}</td>
+                              <td className="date-cell">
+                                {date(r.date)} <span>{r.time || "—"}</span>
+                              </td>
+                              <td>{value(r.chlorophyll_a_index)}</td>
+                              <td>{value(r.chlorophyll_b_index)}</td>
+                              <td className="total-value">
+                                {value(r.chlorophyll_total_index)}
+                              </td>
+                              <td>{r.latitude?.toFixed(6) || "—"}</td>
+                              <td>{r.longitude?.toFixed(6) || "—"}</td>
+                              <td
+                                className={
+                                  r.warnings.length ? "warning-text" : ""
+                                }
+                                title={r.warnings
+                                  .map((w) => warningMessage(w))
+                                  .join("\n")}
+                              >
+                                {r.warnings.length || "—"}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                    {!filteredRows.length && (
+                      <div className="empty-state">
+                        <p>Nenhuma medição para os filtros atuais.</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="table-bottom">
+                    <span>
+                      Índices do instrumento · Ausências: — · Clique no registro
+                      para inspecionar
+                    </span>
+                    <div className="pagination">
+                      <button
+                        className="icon-button"
+                        aria-label="Página anterior"
+                        disabled={page === 0}
+                        onClick={() => setPage(page - 1)}
+                      >
+                        <ChevronLeft size={15} />
+                      </button>
+                      <span>
+                        {page + 1} de{" "}
+                        {Math.max(
+                          1,
+                          Math.ceil(filteredRows.length / PAGE_SIZE),
+                        )}
+                      </span>
+                      <button
+                        className="icon-button"
+                        aria-label="Próxima página"
+                        disabled={(page + 1) * PAGE_SIZE >= filteredRows.length}
+                        onClick={() => setPage(page + 1)}
+                      >
+                        <ChevronRight size={15} />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+              {tab === "chart" && <ChartPanel records={filteredOriginRows} />}
+              {tab === "map" && (
+                <MapPanel
+                  title="Coordenadas dos registros"
+                  points={workPoints}
+                  region={locations}
+                  selectedKey={selKey}
+                  relatedWork={active}
+                  onSelect={(p) => setSelKey(p.key)}
+                  focus={focus}
+                  onFocused={clearFocus}
+                  fitKey={`${active}|${group}|${warningsOnly}|${query}|${JSON.stringify(colFilters)}`}
+                  fill
+                  action={
+                    selKey && rows.some((r) => rowKey(r) === selKey) ? (
+                      <button className="button" onClick={inspectSelected}>
+                        <Info size={15} />
+                        Inspecionar registro
+                      </button>
+                    ) : undefined
+                  }
+                />
+              )}
+              {tab === "source" && (
+                <div className="audit-content">
+                  <h3>Origem</h3>
+                  <dl className="metadata">
+                    <dt>Arquivo</dt>
+                    <dd>{source.name}</dd>
+                    <dt>Tamanho</dt>
+                    <dd>{number(source.size)} bytes</dd>
+                    <dt>SHA-256</dt>
+                    <dd className="mono">{source.sha256}</dd>
+                    <dt>Diretório</dt>
+                    <dd>{detail.directory}</dd>
+                    <dt>Configuração</dt>
+                    <dd>{detail.configuration_file || "Não disponível"}</dd>
+                    <dt>Origem do nome</dt>
+                    <dd>{detail.name_source}</dd>
+                  </dl>
+                  <h3>Avisos e limitações</h3>
+                  {[
+                    ...detail.errors,
+                    ...detail.warnings,
+                    ...source.limitations,
+                  ].map((s, i) => (
+                    <p className="limitation" key={i}>
+                      <Info size={14} />
+                      {s}
+                    </p>
+                  ))}
+                  <p className="quiet-note">
+                    Equivalência Leaf não presumida. Datum das coordenadas não
+                    confirmado.
+                  </p>
+                </div>
+              )}
+              {tab === "export" && (
+                <div className="audit-content export-tab">
+                  <h3>Exportar trabalho</h3>
+                  <div
+                    className="option-cards"
+                    role="radiogroup"
+                    aria-label="Formato de exportação"
+                  >
+                    {EXPORT_MODES.map((m) => (
+                      <button
+                        key={m.id}
+                        role="radio"
+                        aria-checked={mode === m.id}
+                        className="option-card"
+                        disabled={!!busy}
+                        onClick={() => {
+                          setMode(m.id);
+                          setResult(null);
+                        }}
+                      >
+                        <strong>{m.title}</strong>
+                        <span>{m.text}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="export-description">
+                    Ao exportar, escolha uma pasta no diálogo do sistema. XLSX
+                    usa uma subpasta nova; JSON permite escolher o arquivo.
+                    Arquivos existentes são preservados.
+                  </p>
+                  <p className="quiet-note">
+                    CSV científico exige um perfil de referência validado; não
+                    está disponível sem essa referência.
+                  </p>
+                  {resultNotice}
+                  <button
+                    className="button primary"
+                    disabled={!!busy}
+                    onClick={() => void exportData([activeWork.key])}
+                  >
+                    {busy ? (
+                      <LoaderCircle size={15} className="spin" />
+                    ) : (
+                      <ArrowDownToLine size={15} />
+                    )}
+                    Escolher destino e exportar
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </main>
       )}
       <footer className="statusbar">
         <span>
@@ -800,12 +1338,13 @@ function App() {
         </span>
         {source && (
           <span>
+            CRC conferido · {number(source.crc_verified)} setores ·{" "}
             {source.works.length} trabalhos · {number(source.records)} medições
             · {number(source.coordinates)} coordenadas
           </span>
         )}
         <span className="status-right">
-          {busy || "Local · FC2 Explorer 0.2.0"}
+          {busy || notice || "Leaf Explorer 0.2.0"}
         </span>
       </footer>
       {drag && (
@@ -814,93 +1353,12 @@ function App() {
           <strong>Solte o arquivo FC2</strong>
         </div>
       )}
-      {exportOpen && source && (
-        <Dialog title="Exportar trabalhos" close={closeExport} footer={false}>
-          <div className="export-selection">
-            <strong>
-              {selected.size} {selected.size === 1 ? "trabalho" : "trabalhos"}
-            </strong>
-            <span>{number(selectedRecords)} medições</span>
-          </div>
-          <label className="field-label">
-            Formato
-            <select
-              aria-label="Formato de exportação"
-              value={mode}
-              disabled={!!busy}
-              onChange={(e) => {
-                setMode(e.target.value);
-                setResult(null);
-              }}
-            >
-              <option value="simple">XLSX — somente planilhas</option>
-              <option value="complete">Completo — planilhas e auditoria</option>
-              <option value="json">JSON — auditoria de um trabalho</option>
-            </select>
-          </label>
-          <p className="export-description">
-            {mode === "json"
-              ? "Um arquivo JSON com registros, bytes e origem."
-              : "Uma nova subpasta será criada no destino escolhido. Arquivos existentes são preservados."}
-          </p>
-          {mode === "json" && selected.size !== 1 && (
-            <p className="notice warning">
-              Selecione um único trabalho para exportar JSON.
-            </p>
-          )}
-          {result && (
-            <div
-              className={`notice export-result ${result.failures ? "warning" : "success"}`}
-              role="status"
-            >
-              <div>
-                <strong>
-                  {result.failures
-                    ? "Exportação com pendências"
-                    : "Exportação concluída"}
-                </strong>
-                <p>
-                  {mode === "json"
-                    ? "Auditoria JSON salva."
-                    : `${result.workbooks} planilhas; ${result.failures} trabalhos bloqueados.`}
-                </p>
-                <code>{result.path}</code>
-                {result.errors.map((s, i) => (
-                  <p key={i}>{s}</p>
-                ))}
-              </div>
-            </div>
-          )}
-          {error && (
-            <p className="notice error" role="alert">
-              {error}
-            </p>
-          )}
-          <div className="dialog-footer">
-            <button className="button" disabled={!!busy} onClick={closeExport}>
-              Fechar
-            </button>
-            <button
-              className="button primary"
-              disabled={
-                !!busy ||
-                !selected.size ||
-                (mode === "json" && selected.size !== 1)
-              }
-              onClick={() => void exportData()}
-            >
-              {busy ? (
-                <LoaderCircle size={15} className="spin" />
-              ) : (
-                <ArrowDownToLine size={15} />
-              )}
-              Escolher destino e exportar
-            </button>
-          </div>
-        </Dialog>
-      )}
       {record && (
-        <Dialog title={`Medição ${record.id}`} close={() => setRecord(null)}>
+        <Dialog
+          title={`Medição ${record.id}`}
+          close={() => setRecord(null)}
+          footer={record.latitude == null || record.longitude == null}
+        >
           <p>
             Grupo {record.group} · Ponto {record.point}
           </p>
@@ -931,27 +1389,56 @@ function App() {
           </pre>
           {record.warnings.map((s, i) => (
             <p className="notice warning" key={i}>
-              {s}
+              {warningMessage(s)} <code>{s}</code>
             </p>
           ))}
+          {record.latitude != null && record.longitude != null && (
+            <div className="dialog-footer">
+              <button className="button" onClick={() => showOnMap(record)}>
+                <MapPin size={15} />
+                Mostrar no mapa
+              </button>
+              <button
+                className="button primary"
+                onClick={() => setRecord(null)}
+              >
+                Fechar
+              </button>
+            </div>
+          )}
         </Dialog>
       )}
       {help && (
-        <Dialog title="FC2 Explorer" close={() => setHelp(false)}>
+        <Dialog title="Leaf Explorer" close={() => setHelp(false)}>
+          <h3 className="help-title">Como usar</h3>
           <p>
-            Abra um FC2 e escolha o trabalho na lista lateral. As caixas de
-            seleção definem os trabalhos para exportação.
+            Abra um FC2: a visão geográfica mostra todos os pontos. Clique em um
+            trabalho ou em um ponto para destacá-lo; duplo clique abre o
+            trabalho. As caixas à esquerda marcam os trabalhos para exportação.
           </p>
           <p>
-            Use as abas para consultar medições, gráficos, coordenadas e
-            metadados. Clique nos cabeçalhos da tabela para ordenar.
+            No trabalho, use as abas para medições, mapa, gráficos, metadados e
+            exportação. Nas colunas da tabela, o nome ordena e o funil filtra.
           </p>
           <p>
             <kbd>Ctrl O</kbd> Abrir arquivo · <kbd>Esc</kbd> Fechar diálogo
           </p>
-          <p className="quiet-note">
-            Leitura estrutural da variante FC2 documentada. Equivalência Leaf
-            não presumida. Datum não confirmado.
+          <h3 className="help-title">Privacidade e limites</h3>
+          <p>
+            O fundo do mapa vem do OpenStreetMap: a região visível é consultada
+            pelo aplicativo; os dados FC2 não são enviados. Sem conexão, os
+            pontos continuam disponíveis.
+          </p>
+          <p>
+            Os índices instrumentais não representam concentração em massa. O
+            CRC confirma integridade estrutural, não equivalência científica.
+            Equivalência Leaf não presumida; datum não confirmado.
+          </p>
+          <h3 className="help-title">Licenças incorporadas</h3>
+          <p className="license">
+            Leaf Explorer: MIT. Ícones Lucide: ISC. Fonte Ubuntu: Ubuntu Font
+            Licence 1.0 (public/fonts). Mapas © OpenStreetMap contributors
+            (ODbL).
           </p>
         </Dialog>
       )}
@@ -1028,189 +1515,6 @@ function Dialog({
             </button>
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-function Chart({ rows }: { rows: Row[] }) {
-  const [series, setSeries] = useState("chlorophyll_total_index");
-  if (!rows.length)
-    return (
-      <div className="empty-state">
-        <BarChart3 size={28} />
-        <p>Nenhuma medição para visualizar.</p>
-      </div>
-    );
-  const values = rows.map((r) => Number(r[series as keyof Measurement]));
-  const max = Math.max(...values, 1) * 1.12;
-  const width = 800,
-    height = 260;
-  return (
-    <div className="chart-content">
-      <div className="chart-heading">
-        <div>
-          <h3>Índices de clorofila</h3>
-          <p>Índices armazenados, na ordem de origem dos registros.</p>
-        </div>
-        <select
-          aria-label="Série do gráfico"
-          value={series}
-          onChange={(e) => setSeries(e.target.value)}
-        >
-          <option value="chlorophyll_total_index">Clorofila total</option>
-          <option value="chlorophyll_a_index">Clorofila A</option>
-          <option value="chlorophyll_b_index">Clorofila B</option>
-        </select>
-      </div>
-      <svg
-        className="data-chart"
-        viewBox="0 0 870 330"
-        role="img"
-        aria-label={`Gráfico de ${values.length} medições de clorofila`}
-      >
-        {[0, 1, 2, 3, 4].map((i) => (
-          <g key={i}>
-            <line
-              x1="48"
-              x2="848"
-              y1={20 + (height * i) / 4}
-              y2={20 + (height * i) / 4}
-              className="gridline"
-            />
-            <text x="37" y={24 + (height * i) / 4} textAnchor="end">
-              {(max * (1 - i / 4)).toFixed(1).replace(".", ",")}
-            </text>
-          </g>
-        ))}
-        {values.map((v, i) => (
-          <circle
-            key={i}
-            cx={
-              48 + width * (values.length === 1 ? 0.5 : i / (values.length - 1))
-            }
-            cy={20 + height * (1 - v / max)}
-            r={values.length > 500 ? 1.6 : 3}
-            className="chart-point"
-          >
-            <title>
-              Grupo {rows[i].group} · Medição {rows[i].id}: {value(v)}
-            </title>
-          </circle>
-        ))}
-        <text x="48" y="305">
-          1
-        </text>
-        <text x="848" y="305" textAnchor="end">
-          {values.length}
-        </text>
-        <text x="448" y="322" textAnchor="middle">
-          Posição na sequência de origem
-        </text>
-      </svg>
-      <div className="quiet-note">
-        <Info size={16} />
-        <p>
-          Valores em índice do instrumento. Os pontos não representam médias nem
-          réplicas experimentais.
-        </p>
-      </div>
-    </div>
-  );
-}
-function CoordinatePlot({ rows }: { rows: Row[] }) {
-  const points = rows.filter((r) => r.latitude != null && r.longitude != null);
-  if (!points.length)
-    return (
-      <div className="empty-state">
-        <MapPin size={30} />
-        <h3>Sem coordenadas disponíveis</h3>
-        <p>As ausências são preservadas no arquivo de origem.</p>
-      </div>
-    );
-  const lons = points.map((r) => r.longitude!),
-    lats = points.map((r) => r.latitude!);
-  const minX = Math.min(...lons),
-    maxX = Math.max(...lons),
-    minY = Math.min(...lats),
-    maxY = Math.max(...lats);
-  const spanX = maxX - minX || 0.001,
-    spanY = maxY - minY || 0.001;
-  const x = (v: number) =>
-    maxX === minX ? 450 : 90 + ((v - minX) / spanX) * 720;
-  const y = (v: number) =>
-    maxY === minY ? 175 : 295 - ((v - minY) / spanY) * 240;
-  return (
-    <div className="chart-content">
-      <div className="chart-heading">
-        <div>
-          <h3>Coordenadas dos registros</h3>
-          <p>
-            {number(points.length)} registros com coordenadas · visualização
-            local
-          </p>
-        </div>
-        <span className="badge neutral">
-          <MapPin size={13} /> Sem mapa externo
-        </span>
-      </div>
-      <svg
-        className="coordinate-chart"
-        viewBox="0 0 900 355"
-        role="img"
-        aria-label="Dispersão de longitude e latitude"
-      >
-        <rect
-          x="70"
-          y="30"
-          width="760"
-          height="285"
-          rx="8"
-          className="plot-background"
-        />
-        {[0, 1, 2, 3, 4].map((i) => (
-          <g key={i}>
-            <line
-              x1="90"
-              x2="810"
-              y1={55 + i * 60}
-              y2={55 + i * 60}
-              className="gridline"
-            />
-            <text x="82" y={60 + i * 60} textAnchor="end">
-              {(maxY - (i / 4) * (maxY - minY)).toFixed(3)}
-            </text>
-            <text x={90 + i * 180} y="334" textAnchor="middle">
-              {(minX + (i / 4) * (maxX - minX)).toFixed(3)}
-            </text>
-          </g>
-        ))}
-        {points.map((r, i) => (
-          <circle
-            key={i}
-            cx={x(r.longitude!)}
-            cy={y(r.latitude!)}
-            r="4"
-            className="chart-point"
-          >
-            <title>
-              Grupo {r.group} · Medição {r.id}: {r.latitude}, {r.longitude}
-            </title>
-          </circle>
-        ))}
-        <text x="450" y="353" textAnchor="middle">
-          Longitude (°)
-        </text>
-        <text x="15" y="170" transform="rotate(-90 15 170)" textAnchor="middle">
-          Latitude (°)
-        </text>
-      </svg>
-      <div className="quiet-note">
-        <Info size={16} />
-        <p>
-          Datum não confirmado. Os eixos são ajustados independentemente; este
-          gráfico não representa distâncias geográficas.
-        </p>
       </div>
     </div>
   );

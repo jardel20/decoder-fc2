@@ -74,7 +74,7 @@ mod tests {
     #[test]
     fn tui_relaunches_outer_appimage_and_falls_back_when_it_is_unavailable() {
         let directory = tempfile::tempdir().unwrap();
-        let image = directory.path().join("FC2 Explorer.AppImage");
+        let image = directory.path().join("Leaf Explorer.AppImage");
         std::fs::write(&image, b"synthetic launcher path").unwrap();
         assert_eq!(
             launcher_executable(Some(image.clone().into_os_string())).unwrap(),

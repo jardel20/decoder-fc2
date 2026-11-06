@@ -22,7 +22,7 @@ function Invoke-Step {
 }
 Push-Location $projectDir
 try {
-    "Validacao desktop FC2 Explorer. Log: $logFile" | Tee-Object -FilePath $logFile -Append
+    "Validacao desktop Leaf Explorer. Log: $logFile" | Tee-Object -FilePath $logFile -Append
     Invoke-Step 'Compilador' 'rustc' @('--version')
     Invoke-Step 'Cargo' 'cargo' @('--version')
     Invoke-Step 'Dependencias do nucleo' 'cargo' @('fetch', '--locked', '--target', $desktopTarget)

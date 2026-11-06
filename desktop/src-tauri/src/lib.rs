@@ -14,6 +14,8 @@ pub struct WorkSummary {
     pub coordinates: usize,
     pub warnings: usize,
     pub errors: Vec<String>,
+    pub directory: String,
+    pub notes: Vec<String>,
     pub first_date: Option<String>,
     pub last_date: Option<String>,
 }
@@ -21,6 +23,8 @@ pub struct WorkSummary {
 #[derive(Serialize)]
 pub struct SourceSummary {
     pub name: String,
+    pub path: String,
+    pub crc_verified: usize,
     pub sha256: String,
     pub size: usize,
     pub records: usize,
@@ -38,6 +42,8 @@ pub fn summary(loaded: &LoadedDataset) -> SourceSummary {
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned(),
+        path: loaded.source_path.display().to_string(),
+        crc_verified: loaded.dataset.filesystem.crc_verified_count,
         sha256: loaded.dataset.source_sha256.clone(),
         size: loaded.source_bytes.len(),
         records: loaded.summaries.iter().map(|s| s.records).sum(),
@@ -67,6 +73,8 @@ pub fn summary(loaded: &LoadedDataset) -> SourceSummary {
                     coordinates: loaded.summaries[key].coordinate_records,
                     warnings: work.warning_count(),
                     errors: work.errors.clone(),
+                    directory: work.directory.clone(),
+                    notes: work.warnings.iter().take(4).cloned().collect(),
                     first_date: dates.first().map(|s| (*s).clone()),
                     last_date: dates.last().map(|s| (*s).clone()),
                 }
@@ -83,6 +91,58 @@ pub fn work_detail(
     check_source(loaded, source)?;
     let work: &Work = loaded.work(key).ok_or("Trabalho não encontrado.")?;
     serde_json::to_value(work).map_err(|e| e.to_string())
+}
+
+/// One plotted coordinate with the identifying fields shown in map tooltips.
+#[derive(Serialize)]
+pub struct Location {
+    pub work: usize,
+    pub work_number: u16,
+    pub work_name: String,
+    pub group_index: usize,
+    pub group: u16,
+    pub record: usize,
+    pub id: u32,
+    pub point: u16,
+    pub date: Option<String>,
+    pub time: Option<String>,
+    pub a: String,
+    pub b: String,
+    pub total: String,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub warnings: Vec<String>,
+}
+
+/// Every numeric coordinate of the open file, in source order.
+pub fn locations(loaded: &LoadedDataset, source: &str) -> Result<Vec<Location>, String> {
+    check_source(loaded, source)?;
+    Ok(loaded
+        .locations
+        .iter()
+        .filter_map(|point| {
+            let work = loaded.work(point.key.work)?;
+            let record = loaded.record(point.key)?;
+            Some(Location {
+                work: point.key.work,
+                work_number: work.number,
+                work_name: work.display_name.clone(),
+                group_index: point.key.group,
+                group: work.groups.get(point.key.group)?.group,
+                record: point.key.record,
+                id: record.id,
+                point: record.point,
+                date: record.date.clone(),
+                time: record.time.clone(),
+                a: record.chlorophyll_a_index.clone(),
+                b: record.chlorophyll_b_index.clone(),
+                total: record.chlorophyll_total_index.clone(),
+                latitude: point.latitude,
+                longitude: point.longitude,
+                warnings: record.warnings.clone(),
+            })
+        })
+        .collect())
 }
 
 fn check_source(loaded: &LoadedDataset, source: &str) -> Result<(), String> {
@@ -142,6 +202,9 @@ pub fn export(
             .collect(),
     })
 }
+
+pub mod terminal;
+pub mod tiles;
 
 #[cfg(feature = "desktop")]
 pub mod runtime;

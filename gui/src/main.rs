@@ -16,7 +16,7 @@ fn main() -> eframe::Result {
     };
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_title("FC2 Explorer")
+            .with_title("Leaf Explorer")
             .with_icon(
                 eframe::icon_data::from_png_bytes(include_bytes!("../../assets/app_icon.png"))
                     .expect("embedded application icon must be valid PNG"),

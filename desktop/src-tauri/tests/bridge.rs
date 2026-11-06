@@ -44,3 +44,19 @@ fn exports_enforce_source_identity_selection_and_no_overwrite() {
     fc2_desktop::export(loaded.clone(), &source, &[0], "json", &audit).unwrap();
     assert!(fc2_desktop::export(loaded, &source, &[0], "json", &audit).is_err());
 }
+
+#[test]
+fn locations_list_every_coordinate_with_source_identity() {
+    let loaded = fixture::loaded();
+    let source = loaded.dataset.source_sha256.clone();
+    let summary = fc2_desktop::summary(&loaded);
+    let points = fc2_desktop::locations(&loaded, &source).unwrap();
+    assert_eq!(points.len(), summary.coordinates);
+    assert!(
+        points
+            .iter()
+            .all(|p| p.latitude.is_finite() && p.longitude.is_finite())
+    );
+    assert!(points.iter().all(|p| !p.work_name.is_empty()));
+    assert!(fc2_desktop::locations(&loaded, "stale").is_err());
+}

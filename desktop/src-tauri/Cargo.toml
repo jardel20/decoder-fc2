@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2024"
 rust-version = "1.90"
 license = "MIT"
-description = "FC2 Explorer desktop, powered by Tauri"
+description = "Leaf Explorer desktop, powered by Tauri"
 
 [lib]
 name = "fc2_desktop"
@@ -16,7 +16,7 @@ required-features = ["desktop"]
 
 [features]
 default = ["desktop"]
-desktop = ["dep:tauri", "dep:tauri-build", "dep:rfd"]
+desktop = ["dep:tauri", "dep:tauri-build", "dep:rfd", "dep:ureq", "dep:base64"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [], optional = true }
@@ -27,6 +27,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [], optional = true }
 rfd = { version = "=0.17.2", optional = true }
+ureq = { version = "3", optional = true }
+base64 = { version = "0.22", optional = true }
 
 [dev-dependencies]
 tempfile = "3.27"

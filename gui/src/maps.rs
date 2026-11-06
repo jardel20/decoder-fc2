@@ -127,7 +127,7 @@ impl MapPane {
             let options = HttpOptions {
                 cache: Some(self.cache.clone()),
                 user_agent: Some(walkers::HeaderValue::from_static(concat!(
-                    "FC2Explorer/",
+                    "LeafExplorer/",
                     env!("CARGO_PKG_VERSION")
                 ))),
                 ..Default::default()

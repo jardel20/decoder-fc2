@@ -15,9 +15,13 @@ Arquivos e valores experimentais não fazem parte desta distribuição.
 
 ### Nova interface desktop: Tauri
 
-A nova interface está em `desktop/`, com Tauri 2, backend Rust e visual inspirado
-no instalador do Ubuntu. O explorador compacto reúne trabalhos, resumo e medições
-na mesma janela, com busca, filtros, ordenação, gráficos, auditoria e exportação.
+O **Leaf Explorer** é a interface desktop do projeto, em `desktop/`, com Tauri 2,
+backend Rust e visual em azul, inspirado no Fedora Linux. Ao abrir um arquivo,
+o explorador mostra os trabalhos, um mapa com todos os pontos e os detalhes do
+trabalho selecionado; cada trabalho abre em abas de medições (com ordenação e
+filtros por coluna), mapa, gráficos, metadados e exportação. O fundo do mapa usa
+tiles do OpenStreetMap, com pré-carregamento opcional da região do arquivo para
+uso offline. O nome "Leaf" não indica vínculo com a Falker ou com o Falker Leaf.
 
 ```bash
 cd desktop
@@ -29,7 +33,7 @@ Consulte [desenvolvimento, pré-requisitos e validação](docs/tauri-ui.md).
 A compilação nativa Linux e os testes locais foram verificados; os seletores
 nativos e os instaladores ainda precisam de validação manual.
 
-### GUI anterior: FC2 Explorer (egui)
+### GUI anterior (egui)
 
 A interface desktop está em `gui/`, compartilhando o decoder da biblioteca sem
 alterar a CLI/TUI. Inclui explorador com trabalhos/mapa/detalhes, tela de trabalho
