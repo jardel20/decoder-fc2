@@ -21,7 +21,9 @@ a geometria e os limites.
 
 ## Limites
 
-Bytes reservados, firmware e campos sem interpretação permanecem disponíveis
-na inspeção bruta. Um valor plausível não confirma sua semântica. Consulte
+Bytes reservados, regiões que possam conter material de firmware e campos sem
+interpretação permanecem disponíveis na inspeção bruta, apenas como bytes: não
+há análise, desmontagem ou execução de código. Um valor plausível não
+confirma sua semântica. Consulte
 [format-specification.md](format-specification.md) para campos implementados e
 níveis de confiança.

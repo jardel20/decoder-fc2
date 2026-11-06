@@ -1,8 +1,19 @@
-# Plano de engenharia reversa
+# Plano de interpretação do formato
 
 O decodificador avança de inspeção estrutural para interpretação validada. Cada
 campo recebe nível de confiança, evidência e proveniência. Campos sem significado
 comprovado permanecem brutos.
+
+## Origem do conhecimento do formato
+
+A estrutura descrita neste projeto foi inferida da observação de arquivos de
+dados do próprio usuário, da comparação com exportações independentes dos mesmos
+dados e de fontes públicas listadas em [references.md](references.md). O projeto
+não decompila nem desmonta programas, aplicativos ou firmware da Falker, não
+acessa suas plataformas online e não inclui código, firmware, manuais, logotipos
+ou arquivos de dados da Falker. Regiões do arquivo que possam conter material de
+firmware são apenas preservadas como bytes, sem análise de código. O projeto é
+independente e não tem vínculo, patrocínio ou endosso da Falker.
 
 ## Princípios
 

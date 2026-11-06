@@ -27,7 +27,9 @@ O FC2 Explorer é independente: não tem vínculo, patrocínio ou endosso da Fal
 "Falker", "Leaf" e "clorofiLOG" pertencem aos seus titulares e são citados apenas
 para identificar os equipamentos e arquivos compatíveis (variantes `.FC2`
 documentadas em `docs/`). O repositório não contém código, firmware, manuais,
-logotipos nem dados da Falker.
+logotipos nem dados da Falker. O formato foi inferido de arquivos de dados do
+próprio usuário e de fontes públicas, sem decompilar software ou firmware
+(veja [docs/plan.md](docs/plan.md)).
 
 ```bash
 cd desktop
