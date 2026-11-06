@@ -220,7 +220,7 @@ fn install_indexes_real_decoder_output_and_resets_previous_source_state() {
 #[test]
 fn reopening_overwritten_same_path_discovers_new_works_and_clears_old_filters() {
     let root = tempfile::tempdir().unwrap();
-    let path = root.path().join("CFL2IMG.FC2");
+    let path = root.path().join("sample.FC2");
     std::fs::write(&path, source()).unwrap();
     let previous = Arc::new(LoadedDataset::load(&path).unwrap());
     let previous_hash = previous.dataset.source_sha256.clone();

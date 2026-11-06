@@ -13,7 +13,35 @@ Arquivos e valores experimentais não fazem parte desta distribuição.
 
 ## Compilar e instalar
 
-### GUI desktop: FC2 Explorer
+### Nova interface desktop: Tauri
+
+O **FC2 Explorer** é a interface desktop do projeto, em `desktop/`, com Tauri 2,
+backend Rust e visual em azul, inspirado no Fedora Linux. Ao abrir um arquivo,
+o explorador mostra os trabalhos, um mapa com todos os pontos e os detalhes do
+trabalho selecionado; cada trabalho abre em abas de medições (com ordenação e
+filtros por coluna), mapa, gráficos, metadados e exportação. O fundo do mapa usa
+tiles do OpenStreetMap, com pré-carregamento opcional da região do arquivo para
+uso offline.
+
+O FC2 Explorer é independente: não tem vínculo, patrocínio ou endosso da Falker.
+"Falker", "Leaf" e "clorofiLOG" pertencem aos seus titulares e são citados apenas
+para identificar os equipamentos e arquivos compatíveis (variantes `.FC2`
+documentadas em `docs/`). O repositório não contém código, firmware, manuais,
+logotipos nem dados da Falker. O formato foi inferido de arquivos de dados do
+próprio usuário e de fontes públicas, sem decompilar software ou firmware
+(veja [docs/plan.md](docs/plan.md)).
+
+```bash
+cd desktop
+npm ci
+npm run tauri dev
+```
+
+Consulte [desenvolvimento, pré-requisitos e validação](docs/tauri-ui.md).
+A compilação nativa Linux e os testes locais foram verificados; os seletores
+nativos e os instaladores ainda precisam de validação manual.
+
+### GUI anterior (egui)
 
 A interface desktop está em `gui/`, compartilhando o decoder da biblioteca sem
 alterar a CLI/TUI. Inclui explorador com trabalhos/mapa/detalhes, tela de trabalho
