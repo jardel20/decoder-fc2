@@ -13,7 +13,23 @@ Arquivos e valores experimentais não fazem parte desta distribuição.
 
 ## Compilar e instalar
 
-### GUI desktop: FC2 Explorer
+### Nova interface desktop: Tauri
+
+A nova interface está em `desktop/`, com Tauri 2, backend Rust e um fluxo guiado
+inspirado no instalador Anaconda do Fedora. Inclui seleção de trabalhos,
+tabela paginada, gráficos, coordenadas locais, auditoria e exportação.
+
+```bash
+cd desktop
+npm ci
+npm run tauri dev
+```
+
+Consulte [desenvolvimento, pré-requisitos e validação](docs/tauri-ui.md).
+A compilação nativa Linux e os testes locais foram verificados; os seletores
+nativos e os instaladores ainda precisam de validação manual.
+
+### GUI anterior: FC2 Explorer (egui)
 
 A interface desktop está em `gui/`, compartilhando o decoder da biblioteca sem
 alterar a CLI/TUI. Inclui explorador com trabalhos/mapa/detalhes, tela de trabalho

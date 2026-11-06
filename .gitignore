@@ -18,3 +18,9 @@
 *.p12
 *.pfx
 /secrets/
+/desktop/node_modules/
+/desktop/dist/
+/desktop/src-tauri/target/
+/desktop/src-tauri/gen/
+/desktop/test-results/
+/desktop/playwright-report/

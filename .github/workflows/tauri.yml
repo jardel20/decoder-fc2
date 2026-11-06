@@ -1,0 +1,47 @@
+name: FC2 Explorer Tauri
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["desktop/**", "src/**", "tests/common/**", "Cargo.*", ".github/workflows/tauri.yml"]
+  push:
+    paths: ["desktop/**", "src/**", "tests/common/**", "Cargo.*", ".github/workflows/tauri.yml"]
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Native prerequisites
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libdbus-1-dev libwayland-dev libxdo-dev build-essential pkg-config
+      - name: Rust stable
+        run: rustup update stable && rustup default stable
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: desktop
+      - name: Frontend formatting and production build
+        run: npm run format:check && npm run build
+        working-directory: desktop
+      - name: Rust formatting
+        run: cargo fmt --manifest-path desktop/src-tauri/Cargo.toml -- --check
+      - name: Core and bridge tests
+        run: cargo test --locked && cargo test --manifest-path desktop/src-tauri/Cargo.toml --locked --no-default-features
+      - name: Native lint and build
+        run: cargo clippy --manifest-path desktop/src-tauri/Cargo.toml --locked --all-targets -- -D warnings && cargo build --manifest-path desktop/src-tauri/Cargo.toml --locked
+      - name: Browser setup
+        run: npx playwright install --with-deps chromium
+        working-directory: desktop
+      - name: Interface tests
+        run: npm test
+        working-directory: desktop
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tauri-interface-evidence
+          path: desktop/test-results/
+          if-no-files-found: ignore
