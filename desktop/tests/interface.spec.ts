@@ -158,90 +158,66 @@ async function openFixture(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Selecionar arquivo FC2" }).click();
   await expect(
-    page.getByRole("heading", { name: "Quais trabalhos vamos explorar?" }),
+    page.getByRole("heading", { name: "Ensaio sintético" }),
   ).toBeVisible();
 }
 
-test("welcome is responsive, supports themes and keyboard-accessible help", async ({
-  page,
-}) => {
+test("compact empty view, themes and keyboard help", async ({ page }) => {
   await page.goto("/");
   await expect(
-    page.getByRole("button", { name: "Continuar", exact: true }),
+    page.getByRole("button", { name: "Exportar", exact: true }),
   ).toBeDisabled();
+  await expect(
+    page.getByText(/Da medição|à descoberta|passo|perspectiva/),
+  ).toHaveCount(0);
   await page.screenshot({
-    path: "test-results/welcome-light.png",
-    fullPage: true,
+    path: "test-results/empty-light.png",
     animations: "disabled",
   });
   await page.getByRole("button", { name: "Ativar tema escuro" }).click();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await page.screenshot({
-    path: "test-results/welcome-dark.png",
-    fullPage: true,
-    animations: "disabled",
-  });
   await page.getByRole("button", { name: "Ajuda", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.setViewportSize({ width: 800, height: 620 });
-  await expect(
-    page.getByRole("button", { name: "Selecionar arquivo FC2" }),
-  ).toBeVisible();
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-  ).toBeTruthy();
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-  ).toBeTruthy();
-  await page.screenshot({
-    path: "test-results/welcome-mobile.png",
-    fullPage: true,
-    animations: "disabled",
-  });
 });
 
-test("select, inspect, filter, paginate and export using the source identity", async ({
+test("work list and measurements share the screen; filter, sort, inspect and export", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await openFixture(page);
+  await expect(page.getByText("1 de 2", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", { name: "Selecionar Controle sintético" }),
+  ).toBeVisible();
+  // At least 15 data rows fit at 1240 x 820. The list and table use the viewport.
+  const visibleRows = await page.locator("tbody tr").evaluateAll(
+    (rows) =>
+      rows.filter((r) => {
+        const b = r.getBoundingClientRect();
+        return b.top >= 0 && b.bottom < innerHeight - 55;
+      }).length,
+  );
+  expect(visibleRows).toBeGreaterThanOrEqual(15);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollHeight <= innerHeight,
+    ),
+  ).toBeTruthy();
   await page.screenshot({
-    path: "test-results/works.png",
-    fullPage: true,
+    path: "test-results/workspace-light.png",
     animations: "disabled",
   });
   await page
     .getByRole("textbox", { name: "Buscar trabalhos" })
     .fill("controle");
   await expect(
-    page.getByRole("checkbox", { name: "Selecionar Controle sintético" }),
-  ).toBeVisible();
-  await expect(
     page.getByRole("checkbox", { name: "Selecionar Ensaio sintético" }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Limpar busca" }).click();
-  await page.getByRole("button", { name: "Limpar", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Continuar", exact: true }),
-  ).toBeDisabled();
-  await page
-    .getByRole("checkbox", { name: "Selecionar Ensaio sintético" })
-    .check();
-  await page.getByRole("button", { name: "Continuar", exact: true }).click();
-  await expect(
-    page.getByRole("tab", { name: "Medições", exact: true }),
-  ).toBeVisible();
-  await expect(page.getByText("1 de 2", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Próxima página" }).click();
   await expect(page.getByText("2 de 2", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Página anterior" }).click();
@@ -256,31 +232,52 @@ test("select, inspect, filter, paginate and export using the source identity", a
   );
   await expect(page.getByRole("dialog")).toContainText("0x430");
   await page.keyboard.press("Escape");
+  await page.getByRole("checkbox", { name: "Somente avisos" }).check();
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await page.getByRole("checkbox", { name: "Somente avisos" }).uncheck();
+  await page.getByRole("textbox", { name: "Buscar medições" }).fill("10:30");
+  await expect(page.locator(".record-count")).toHaveText("79 / 80 registros");
+  await page.getByRole("textbox", { name: "Buscar medições" }).fill("");
+  await page.getByRole("button", { name: "ID", exact: true }).click();
+  await page.getByRole("button", { name: "ID", exact: true }).click();
+  await expect(
+    page.locator("tbody tr").first().locator("td").first(),
+  ).toHaveText("80");
   await page.getByLabel("Filtrar grupo").selectOption("2");
-  await expect(page.locator(".table-bottom")).toContainText("4 medições");
-  await page.getByRole("tab", { name: "Gráfico", exact: true }).click();
+  await expect(page.locator("tbody tr")).toHaveCount(4);
+  await page.getByRole("tab", { name: "Gráficos", exact: true }).click();
   await expect(
     page.getByRole("img", { name: "Gráfico de 4 medições de clorofila" }),
   ).toBeVisible();
+  await expect(page.locator(".data-chart circle title").first()).toContainText(
+    "Medição 77",
+  );
+  await page.getByLabel("Filtrar grupo").selectOption("1");
+  await expect(
+    page.getByRole("img", { name: "Gráfico de 76 medições de clorofila" }),
+  ).toBeVisible();
+  await page.getByLabel("Filtrar grupo").selectOption("2");
   await page.getByRole("tab", { name: "Coordenadas", exact: true }).click();
   await expect(
     page.getByText("Datum não confirmado.", { exact: false }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Origem e avisos" }).click();
+  await page.getByRole("tab", { name: "Metadados", exact: true }).click();
   await expect(page.getByText(source.sha256, { exact: true })).toBeVisible();
-  await page.getByRole("tab", { name: "Medições", exact: true }).click();
-  await page.screenshot({
-    path: "test-results/explore.png",
-    fullPage: true,
-    animations: "disabled",
-  });
-  await page.getByRole("button", { name: "Preparar exportação" }).click();
+  await page.getByRole("button", { name: "Limpar", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Exportar (0)", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("checkbox", { name: "Selecionar Ensaio sintético" })
+    .check();
+  await page.getByRole("button", { name: "Exportar (1)", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Formato de exportação" })
+    .selectOption("json");
   await page.screenshot({
     path: "test-results/export.png",
-    fullPage: true,
     animations: "disabled",
   });
-  await page.getByRole("radio", { name: /Auditoria JSON/ }).check();
   await page
     .getByRole("button", { name: "Escolher destino e exportar" })
     .click();
@@ -293,35 +290,49 @@ test("select, inspect, filter, paginate and export using the source identity", a
   expect(errors).toEqual([]);
 });
 
-test("JSON requires one selection, partial failures remain visible", async ({
+test("selection and active work are independent; JSON and partial export failures", async ({
   page,
 }) => {
   await mockBridge(page, { partial: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Selecionar arquivo FC2" }).click();
-  await page.getByRole("button", { name: /04 Exportar/ }).click();
-  await page.getByRole("radio", { name: /Auditoria JSON/ }).check();
+  await page
+    .getByRole("button", { name: "Abrir trabalho Controle sintético" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Controle sintético" }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "Coordenadas", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Sem coordenadas disponíveis" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Exportar (2)", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Formato de exportação" })
+    .selectOption("json");
   await expect(
     page.getByRole("button", { name: "Escolher destino e exportar" }),
   ).toBeDisabled();
-  await page.getByRole("radio", { name: /Pacote completo/ }).check();
+  await page
+    .getByRole("combobox", { name: "Formato de exportação" })
+    .selectOption("complete");
   await page
     .getByRole("button", { name: "Escolher destino e exportar" })
     .click();
   await expect(page.getByRole("status")).toContainText(
     "20: inconsistent groups",
   );
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
 for (const option of ["cancel", "fail"] as const)
-  test(`opening handles ${option} without losing the welcome screen`, async ({
-    page,
-  }) => {
+  test(`file open handles ${option}`, async ({ page }) => {
     await mockBridge(page, { [option]: true });
     await page.goto("/");
     await page.getByRole("button", { name: "Selecionar arquivo FC2" }).click();
     await expect(
-      page.getByRole("heading", { name: "Seus dados começam aqui." }),
+      page.getByRole("heading", { name: "Abrir arquivo FC2" }),
     ).toBeVisible();
     if (option === "fail")
       await expect(page.getByRole("alert")).toContainText(
@@ -332,19 +343,39 @@ for (const option of ["cancel", "fail"] as const)
     ).toBeEnabled();
   });
 
-test("work detail errors offer recovery and missing coordinates stay empty", async ({
+test("retry work detail; compact layout at minimum and wide window sizes", async ({
   page,
 }) => {
   await mockBridge(page, { workFail: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Selecionar arquivo FC2" }).click();
-  await page.getByRole("button", { name: "Continuar", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("Falha temporária");
   await page.getByRole("button", { name: "Tentar novamente" }).click();
   await expect(page.getByText("1 de 2", { exact: true })).toBeVisible();
-  await page.getByLabel("Trabalho em exploração").selectOption("1");
-  await page.getByRole("tab", { name: "Coordenadas", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Sem coordenadas disponíveis" }),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "Ativar tema escuro" }).click();
+  await page.screenshot({
+    path: "test-results/workspace-dark.png",
+    animations: "disabled",
+  });
+  for (const [width, height] of [
+    [800, 620],
+    [1900, 1026],
+  ]) {
+    await page.setViewportSize({ width, height });
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <= innerWidth &&
+          document.documentElement.scrollHeight <= innerHeight,
+      ),
+    ).toBeTruthy();
+    await expect(
+      page.getByRole("button", { name: "Abrir trabalho Ensaio sintético" }),
+    ).toBeVisible();
+    await expect(page.getByRole("table")).toBeVisible();
+    await page.screenshot({
+      path: `test-results/workspace-${width}.png`,
+      animations: "disabled",
+    });
+  }
 });

@@ -15,9 +15,9 @@ Arquivos e valores experimentais não fazem parte desta distribuição.
 
 ### Nova interface desktop: Tauri
 
-A nova interface está em `desktop/`, com Tauri 2, backend Rust e um fluxo guiado
-inspirado no instalador Anaconda do Fedora. Inclui seleção de trabalhos,
-tabela paginada, gráficos, coordenadas locais, auditoria e exportação.
+A nova interface está em `desktop/`, com Tauri 2, backend Rust e visual inspirado
+no instalador do Ubuntu. O explorador compacto reúne trabalhos, resumo e medições
+na mesma janela, com busca, filtros, ordenação, gráficos, auditoria e exportação.
 
 ```bash
 cd desktop

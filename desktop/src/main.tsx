@@ -1,32 +1,31 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   ArrowDownToLine,
-  ArrowLeft,
-  ArrowRight,
+  ArrowDown,
+  ArrowUp,
   BarChart3,
   Check,
-  CheckCheck,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
   Database,
-  FileCheck2,
-  FileJson2,
-  FileSpreadsheet,
   FileUp,
   FolderOpen,
-  HardDrive,
   Info,
-  Leaf,
   LoaderCircle,
   MapPin,
   Moon,
   Search,
   ShieldCheck,
-  SlidersHorizontal,
   Sun,
   Table2,
   TriangleAlert,
@@ -39,59 +38,28 @@ import type {
   WorkDetail,
 } from "./types";
 import "./styles.css";
-
-const steps = [
-  {
-    title: "Arquivo de origem",
-    description: "Abra seus dados",
-    icon: FolderOpen,
-  },
-  { title: "Trabalhos", description: "Escolha o que explorar", icon: Database },
-  {
-    title: "Explorar dados",
-    description: "Conheça suas medições",
-    icon: BarChart3,
-  },
-  {
-    title: "Exportar",
-    description: "Leve os dados com você",
-    icon: ArrowDownToLine,
-  },
-];
-const formats = [
-  {
-    id: "simple",
-    title: "Planilhas Excel",
-    tag: "Recomendado",
-    description:
-      "Uma planilha XLSX por trabalho, com medições e informações da origem.",
-    icon: FileSpreadsheet,
-  },
-  {
-    id: "complete",
-    title: "Pacote completo",
-    tag: "Com auditoria",
-    description:
-      "Planilhas, dados de auditoria e arquivos de origem da seleção.",
-    icon: FileCheck2,
-  },
-  {
-    id: "json",
-    title: "Auditoria JSON",
-    tag: "Um trabalho",
-    description: "Registros, bytes e rastreabilidade de um único trabalho.",
-    icon: FileJson2,
-  },
-];
 const number = (n: number) => n.toLocaleString("pt-BR");
 const date = (s: string | null) => (s ? s.split("-").reverse().join("/") : "—");
 const value = (s: string | number | null | undefined) =>
   s == null ? "—" : String(s).replace(".", ",");
 const PAGE_SIZE = 75;
 type Row = Measurement & { group: number; source_file: string; index: number };
-
+type SortKey =
+  | "id"
+  | "group"
+  | "point"
+  | "date"
+  | "chlorophyll_a_index"
+  | "chlorophyll_b_index"
+  | "chlorophyll_total_index"
+  | "warnings";
+const tabs = [
+  { id: "table", name: "Medições", icon: Table2 },
+  { id: "chart", name: "Gráficos", icon: BarChart3 },
+  { id: "map", name: "Coordenadas", icon: MapPin },
+  { id: "source", name: "Metadados", icon: ShieldCheck },
+];
 function App() {
-  const [step, setStep] = useState(0);
   const [source, setSource] = useState<SourceSummary | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [active, setActive] = useState<number | null>(null);
@@ -100,6 +68,12 @@ function App() {
   const [detailAttempt, setDetailAttempt] = useState(0);
   const [tab, setTab] = useState("table");
   const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  const [warningsOnly, setWarningsOnly] = useState(false);
+  const [sort, setSort] = useState<{
+    key: SortKey;
+    descending: boolean;
+  } | null>(null);
   const [page, setPage] = useState(0);
   const [group, setGroup] = useState("all");
   const [mode, setMode] = useState("simple");
@@ -108,78 +82,98 @@ function App() {
   const [result, setResult] = useState<ExportResult | null>(null);
   const [record, setRecord] = useState<Row | null>(null);
   const [help, setHelp] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [drag, setDrag] = useState(false);
   const [theme, setTheme] = useState(
     () => localStorage.getItem("fc2-theme") || "light",
   );
   const request = useRef(0);
-  const title = useRef<HTMLHeadingElement>(null);
+  const operation = useRef(false);
   const selectedWorks = source?.works.filter((w) => selected.has(w.key)) || [];
   const selectedRecords = selectedWorks.reduce((sum, w) => sum + w.records, 0);
-  const rows: Row[] =
-    detail?.groups.flatMap((g) =>
-      g.records.map((r, index) => ({
-        ...r,
-        group: g.group,
-        source_file: g.source_file,
-        index,
-      })),
-    ) || [];
-  const filteredRows = rows.filter(
-    (r) => group === "all" || String(r.group) === group,
+  const activeWork = source?.works.find((w) => w.key === active);
+  const rows: Row[] = useMemo(
+    () =>
+      detail?.groups.flatMap((g) =>
+        g.records.map((r, index) => ({
+          ...r,
+          group: g.group,
+          source_file: g.source_file,
+          index,
+        })),
+      ) || [],
+    [detail],
   );
+  const filteredOriginRows = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    const filtered = rows.filter(
+      (r) =>
+        (group === "all" || String(r.group) === group) &&
+        (!warningsOnly || r.warnings.length > 0) &&
+        (!needle ||
+          `${r.id} ${r.point} ${r.date || ""} ${date(r.date)} ${r.time || ""}`
+            .toLocaleLowerCase()
+            .includes(needle)),
+    );
+    return filtered;
+  }, [rows, group, warningsOnly, query]);
+  const filteredRows = useMemo(() => {
+    const filtered = [...filteredOriginRows];
+    if (sort)
+      filtered.sort((a, b) => {
+        const k = sort.key;
+        let diff: number;
+        if (k === "date")
+          diff = `${a.date || ""} ${a.time || ""}`.localeCompare(
+            `${b.date || ""} ${b.time || ""}`,
+          );
+        else if (k === "warnings") diff = a.warnings.length - b.warnings.length;
+        else diff = Number(a[k]) - Number(b[k]);
+        return sort.descending ? -diff : diff;
+      });
+    return filtered;
+  }, [filteredOriginRows, sort]);
   const works =
     source?.works.filter((w) =>
       `${w.name} ${w.number}`
         .toLocaleLowerCase()
         .includes(search.toLocaleLowerCase()),
     ) || [];
-
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("fc2-theme", theme);
   }, [theme]);
-  useEffect(() => {
-    title.current?.focus({ preventScroll: true });
-    title.current?.closest(".workspace")?.scrollTo({ top: 0 });
-  }, [step]);
-
-  const open = useCallback(
-    async (path?: string) => {
-      if (busy) return;
-      if (!isTauri()) {
-        setError(
-          "Abra o aplicativo desktop para selecionar arquivos locais. Esta é uma prévia da interface.",
-        );
-        return;
+  const open = useCallback(async (path?: string) => {
+    if (operation.current) return;
+    if (!isTauri()) {
+      setError("Seleção de arquivos disponível no aplicativo desktop.");
+      return;
+    }
+    operation.current = true;
+    setBusy("Lendo FC2 e verificando a estrutura…");
+    setError("");
+    try {
+      const data = await invoke<SourceSummary | null>("open_source", {
+        path: path || null,
+      });
+      if (data) {
+        request.current++;
+        setSource(data);
+        setSelected(new Set(data.works.map((w) => w.key)));
+        setActive(data.works[0]?.key ?? null);
+        setDetail(null);
+        setResult(null);
+        setSearch("");
+        setTab("table");
+        setExportOpen(false);
       }
-      setBusy("Lendo o arquivo e verificando sua estrutura…");
-      setError("");
-      try {
-        const data = await invoke<SourceSummary | null>("open_source", {
-          path: path || null,
-        });
-        if (data) {
-          request.current++;
-          setSource(data);
-          setSelected(new Set(data.works.map((w) => w.key)));
-          setActive(data.works[0]?.key ?? null);
-          setDetail(null);
-          setResult(null);
-          setSearch("");
-          setStep(1);
-          setPage(0);
-          setGroup("all");
-        }
-      } catch (e) {
-        setError(String(e));
-      } finally {
-        setBusy("");
-      }
-    },
-    [busy],
-  );
-
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      operation.current = false;
+      setBusy("");
+    }
+  }, []);
   useEffect(() => {
     if (!isTauri()) return;
     let disposed = false;
@@ -211,7 +205,7 @@ function App() {
           if (p) void open(p);
         })
         .catch((e) => setError(String(e)));
-  }, []);
+  }, [open]);
   useEffect(() => {
     const listener = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
@@ -221,6 +215,7 @@ function App() {
       if (e.key === "Escape") {
         setRecord(null);
         setHelp(false);
+        if (!operation.current) setExportOpen(false);
       }
     };
     window.addEventListener("keydown", listener);
@@ -234,6 +229,9 @@ function App() {
     setPage(0);
     setGroup("all");
     setRecord(null);
+    setQuery("");
+    setWarningsOnly(false);
+    setSort(null);
     invoke<WorkDetail>("get_work", { source: source.sha256, key: active })
       .then((data) => {
         if (id === request.current) setDetail(data);
@@ -242,7 +240,6 @@ function App() {
         if (id === request.current) setDetailError(String(e));
       });
   }, [active, source, detailAttempt]);
-
   function toggle(key: number) {
     setSelected((old) => {
       const next = new Set(old);
@@ -252,14 +249,17 @@ function App() {
     });
     setResult(null);
   }
-  function navigate(next: number) {
-    if (busy) return;
-    setStep(next);
-    setError("");
+  function sortBy(key: SortKey) {
+    setSort((old) => ({
+      key,
+      descending: old?.key === key ? !old.descending : false,
+    }));
+    setPage(0);
   }
   async function exportData() {
-    if (!source || !selected.size || busy) return;
-    setBusy("Validando a origem e exportando os trabalhos…");
+    if (!source || !selected.size || operation.current) return;
+    operation.current = true;
+    setBusy("Validando a origem e exportando…");
     setError("");
     setResult(null);
     try {
@@ -273,28 +273,65 @@ function App() {
     } catch (e) {
       setError(String(e));
     } finally {
+      operation.current = false;
       setBusy("");
     }
   }
-  const canContinue = !!source && (step === 0 || selected.size > 0);
-  const activeWork = source?.works.find((w) => w.key === active);
-
+  function closeExport() {
+    if (!operation.current) setExportOpen(false);
+  }
+  function tableHead(label: string, key: SortKey) {
+    return (
+      <th
+        key={key}
+        aria-sort={
+          sort?.key === key
+            ? sort.descending
+              ? "descending"
+              : "ascending"
+            : "none"
+        }
+      >
+        <button onClick={() => sortBy(key)}>
+          {label}
+          {sort?.key === key &&
+            (sort.descending ? <ArrowDown size={12} /> : <ArrowUp size={12} />)}
+        </button>
+      </th>
+    );
+  }
   return (
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-icon">
-            <Leaf size={22} />
-          </span>
-          <span>
-            FC2 <strong>Explorer</strong>
-          </span>
-          <span className="desktop-label">DESKTOP</span>
+          <Database size={18} />
+          <strong>FC2 Explorer</strong>
         </div>
-        <div className="header-actions">
-          <span className="local-label">
-            <span className="status-dot" /> Processamento local
+        <button
+          className="button"
+          onClick={() => void open()}
+          disabled={!!busy}
+        >
+          <FolderOpen size={16} />
+          Abrir FC2
+        </button>
+        {source && (
+          <span className="header-source" title={source.name}>
+            {source.name}
           </span>
+        )}
+        <div className="header-actions">
+          <button
+            className="button primary"
+            disabled={!source || !selected.size || !!busy}
+            onClick={() => {
+              setExportOpen(true);
+              setResult(null);
+            }}
+          >
+            <ArrowDownToLine size={16} />
+            Exportar{source && ` (${selected.size})`}
+          </button>
           <button
             className="icon-button"
             aria-label={
@@ -302,460 +339,223 @@ function App() {
             }
             onClick={() => setTheme(theme === "light" ? "dark" : "light")}
           >
-            {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
+            {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
           </button>
           <button
             className="icon-button"
             aria-label="Ajuda"
             onClick={() => setHelp(true)}
           >
-            <CircleHelp size={19} />
+            <CircleHelp size={17} />
           </button>
         </div>
       </header>
-      <aside className="sidebar">
-        <div className="sidebar-heading">SEU ESPAÇO DE ANÁLISE</div>
-        <nav aria-label="Etapas">
-          {steps.map((s, i) => (
-            <button
-              key={s.title}
-              className={`step ${step === i ? "active" : ""}`}
-              aria-current={step === i ? "step" : undefined}
-              disabled={
-                !!busy || (i > 0 && !source) || (i > 1 && !selected.size)
-              }
-              onClick={() => navigate(i)}
-            >
-              <span className={`step-number ${i < step ? "done" : ""}`}>
-                {i < step ? <Check size={16} /> : `0${i + 1}`}
-              </span>
-              <span>
-                <strong>{s.title}</strong>
-                <small>{s.description}</small>
-              </span>
-              {step === i && <span className="active-dot" />}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="orbit orbit-one" />
-          <div className="orbit orbit-two" />
-          <Leaf size={27} />
-          <p>
-            Da medição
-            <br />
-            <strong>à descoberta.</strong>
-          </p>
-          <span>Seus dados, mais claros.</span>
-        </div>
-        <div className="sidebar-version">
-          FC2 Explorer <span>v0.2.0</span>
-        </div>
-      </aside>
-      <main className="main">
-        <div className="workspace" aria-busy={!!busy}>
-          <div className="page-heading">
-            <div>
-              <div className="eyebrow">
-                ETAPA 0{step + 1} DE 04 <span />{" "}
-                {step === 0 ? "COMECE POR AQUI" : source?.name}
-              </div>
-              <h1 ref={title} tabIndex={-1}>
-                {
-                  [
-                    "Seus dados começam aqui.",
-                    "Quais trabalhos vamos explorar?",
-                    "Um olhar mais próximo.",
-                    "Pronto para o próximo passo.",
-                  ][step]
-                }
-              </h1>
-              <p>
-                {
-                  [
-                    "Abra um arquivo FC2 para organizar, explorar e exportar suas medições.",
-                    "Selecione os trabalhos que deseja analisar ou exportar.",
-                    "Explore as medições e confira as informações de cada trabalho.",
-                    "Escolha como levar suas medições para fora do FC2 Explorer.",
-                  ][step]
-                }
-              </p>
-            </div>
-            <span className="page-icon">
-              {React.createElement(steps[step].icon, {
-                size: 25,
-                strokeWidth: 1.5,
-              })}
-            </span>
-          </div>
+      {(error || busy) && (
+        <div
+          className={`notice global-notice ${error ? "error" : "loading"}`}
+          role={error ? "alert" : "status"}
+        >
+          {error ? (
+            <TriangleAlert size={16} />
+          ) : (
+            <LoaderCircle size={16} className="spin" />
+          )}
+          <span>{error || busy}</span>
           {error && (
-            <div className="notice error" role="alert">
-              <TriangleAlert size={19} />
-              <span>{error}</span>
+            <button
+              className="icon-button"
+              aria-label="Fechar aviso"
+              onClick={() => setError("")}
+            >
+              <X size={15} />
+            </button>
+          )}
+        </div>
+      )}
+      {!source ? (
+        <main className="empty-workspace">
+          <div className="open-file">
+            <FolderOpen size={36} strokeWidth={1.3} />
+            <h1>Abrir arquivo FC2</h1>
+            <p>Trabalhos, medições e exportação.</p>
+            <button
+              className="button primary"
+              disabled={!!busy}
+              onClick={() => void open()}
+            >
+              <FolderOpen size={16} />
+              Selecionar arquivo FC2
+            </button>
+            <small>
+              Arraste um arquivo para a janela ou use <kbd>Ctrl O</kbd>.
+            </small>
+          </div>
+        </main>
+      ) : (
+        <div className="explorer-layout">
+          <aside className="work-sidebar" aria-label="Trabalhos">
+            <div className="sidebar-title">
+              <h2>
+                Trabalhos <span>{source.works.length}</span>
+              </h2>
+              <span>{selected.size} selecionados</span>
+            </div>
+            <label className="search">
+              <Search size={15} />
+              <input
+                aria-label="Buscar trabalhos"
+                placeholder="Nome ou número"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              {search && (
+                <button
+                  className="icon-button"
+                  aria-label="Limpar busca"
+                  onClick={() => setSearch("")}
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </label>
+            <div className="selection-toolbar">
+              <label>
+                <input
+                  type="checkbox"
+                  aria-label="Selecionar trabalhos visíveis"
+                  checked={
+                    works.length > 0 && works.every((w) => selected.has(w.key))
+                  }
+                  onChange={(e) => {
+                    const next = new Set(selected);
+                    works.forEach((w) =>
+                      e.target.checked ? next.add(w.key) : next.delete(w.key),
+                    );
+                    setSelected(next);
+                    setResult(null);
+                  }}
+                />
+                Visíveis
+              </label>
               <button
-                className="icon-button"
-                aria-label="Fechar aviso"
-                onClick={() => setError("")}
+                className="text-button"
+                onClick={() => {
+                  setSelected(new Set(source.works.map((w) => w.key)));
+                  setResult(null);
+                }}
               >
-                <X size={16} />
+                Todos
+              </button>
+              <button
+                className="text-button"
+                onClick={() => {
+                  setSelected(new Set());
+                  setResult(null);
+                }}
+              >
+                Limpar
               </button>
             </div>
-          )}
-          {busy && (
-            <div className="notice loading" role="status">
-              <LoaderCircle className="spin" size={19} />
-              {busy}
-            </div>
-          )}
-          {step === 0 && (
-            <>
-              <section className={`import-card ${drag ? "dragging" : ""}`}>
-                <div className="import-copy">
-                  <div className="file-symbol">
-                    <FileUp size={30} strokeWidth={1.5} />
-                    <span>.FC2</span>
-                  </div>
-                  <h2>Abra uma nova perspectiva.</h2>
-                  <p>
-                    Seu arquivo de medições, em um espaço
-                    <br className="desktop-break" /> pensado para explorar cada
-                    detalhe.
-                  </p>
+            <div className="work-list">
+              {works.map((w) => (
+                <div
+                  key={w.key}
+                  className={`work-item ${active === w.key ? "active" : ""}`}
+                >
+                  <input
+                    aria-label={`Selecionar ${w.name}`}
+                    type="checkbox"
+                    checked={selected.has(w.key)}
+                    onChange={() => toggle(w.key)}
+                  />
                   <button
-                    className="button primary large"
-                    disabled={!!busy}
-                    onClick={() => void open()}
+                    className="work-button"
+                    aria-pressed={active === w.key}
+                    aria-label={`Abrir trabalho ${w.name}`}
+                    onClick={() => setActive(w.key)}
                   >
-                    <FolderOpen size={18} /> Selecionar arquivo FC2
+                    <span className="work-name">{w.name}</span>
+                    <span className="work-counts">
+                      ID {w.number} · {number(w.records)} medições · {w.groups}{" "}
+                      gr.
+                    </span>
                   </button>
-                  <span className="drop-hint">
-                    ou arraste um arquivo para esta janela <kbd>Ctrl O</kbd>
-                  </span>
-                  {source && (
-                    <button className="text-button" onClick={() => navigate(1)}>
-                      Continuar com {source.name} <ArrowRight size={15} />
-                    </button>
+                  {(w.errors.length > 0 || w.warnings > 0) && (
+                    <span
+                      className={`work-warning ${w.errors.length ? "danger" : ""}`}
+                      title={`${w.errors.length} erros; ${w.warnings} avisos`}
+                    >
+                      <TriangleAlert size={13} />
+                    </span>
                   )}
                 </div>
-                <div className="import-visual" aria-hidden="true">
-                  <div className="visual-orbit" />
-                  <div className="visual-orbit second" />
-                  <div className="visual-dots" />
-                  <div className="specimen-card">
-                    <div className="specimen-top">
-                      <span className="specimen-icon">
-                        <Leaf size={21} />
-                      </span>
-                      <span>
-                        Clorofila
-                        <span className="specimen-caption">
-                          UMA NOVA VISÃO DOS SEUS DADOS
-                        </span>
-                      </span>
-                      <span className="specimen-check">
-                        <Check size={14} />
-                      </span>
-                    </div>
-                    <div className="specimen-bars">
-                      {[37, 55, 48, 72, 59, 81, 70, 91, 77, 95, 83, 100].map(
-                        (h, i) => (
-                          <span
-                            key={i}
-                            style={{
-                              height: `${h}%`,
-                              opacity: 0.3 + i * 0.055,
-                            }}
-                          />
-                        ),
-                      )}
-                    </div>
-                    <div className="specimen-bottom">
-                      <span>COLETAR</span>
-                      <span>EXPLORAR</span>
-                      <span>DESCOBRIR</span>
-                    </div>
+              ))}
+              {!works.length && (
+                <p className="list-empty">Nenhum trabalho encontrado.</p>
+              )}
+            </div>
+            <div className="sidebar-summary">
+              <span>
+                {number(source.records)} medições · {source.groups} grupos
+              </span>
+              <span>{number(selectedRecords)} medições selecionadas</span>
+            </div>
+          </aside>
+          <main className="work-main" aria-busy={!!busy}>
+            {activeWork ? (
+              <>
+                <section className="work-heading">
+                  <div>
+                    <h1>{activeWork.name}</h1>
+                    <span className="work-id">ID {activeWork.number}</span>
+                    <span
+                      className={`badge ${activeWork.errors.length ? "danger" : "success"}`}
+                    >
+                      {activeWork.errors.length ? (
+                        <TriangleAlert size={12} />
+                      ) : (
+                        <Check size={12} />
+                      )}{" "}
+                      {activeWork.errors.length
+                        ? "Estrutura com erros"
+                        : "Estrutura interpretada"}
+                    </span>
                   </div>
-                  <div className="floating-label">
-                    <CheckCheck size={16} /> Cada medição conta.
-                  </div>
-                </div>
-              </section>
-              <div className="feature-grid">
-                <Feature
-                  icon={HardDrive}
-                  title="Do arquivo ao insight"
-                  text="Trabalhos e medições organizados em um só lugar."
-                />
-                <Feature
-                  icon={ShieldCheck}
-                  title="Seus dados ficam com você"
-                  text="Leitura e exportação locais, sem upload ou conta."
-                />
-                <Feature
-                  icon={FileSpreadsheet}
-                  title="Pronto para seguir adiante"
-                  text="Exporte para Excel ou preserve a auditoria completa."
-                />
-              </div>
-              <div className="quiet-note">
-                <Info size={16} />
-                <p>
-                  Compatível com a variante FC2 documentada pelo projeto. O
-                  arquivo original é preservado.
-                </p>
-              </div>
-            </>
-          )}
-          {step === 1 && source && (
-            <>
-              <div className="source-strip">
-                <div className="source-file-icon">
-                  <FileCheck2 size={23} />
-                </div>
-                <div>
-                  <strong>{source.name}</strong>
-                  <small>
-                    {(source.size / 1024 / 1024).toLocaleString("pt-BR", {
-                      maximumFractionDigits: 2,
-                    })}{" "}
-                    MB <span>·</span> {number(source.works.length)} trabalhos
-                    encontrados
-                  </small>
-                </div>
-                <button
-                  className="button subtle"
-                  disabled={!!busy}
-                  onClick={() => void open()}
-                >
-                  <FolderOpen size={16} /> Trocar arquivo
-                </button>
-              </div>
-              <div className="stats-grid">
-                <Stat label="Trabalhos" value={source.works.length} />
-                <Stat label="Medições" value={source.records} />
-                <Stat label="Grupos" value={source.groups} />
-                <Stat label="Com coordenadas" value={source.coordinates} />
-              </div>
-              <section className="panel works-panel">
-                <div className="panel-toolbar">
-                  <label className="search">
-                    <Search size={18} />
-                    <input
-                      aria-label="Buscar trabalhos"
-                      placeholder="Buscar por nome ou número…"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                    />
-                    {search && (
-                      <button
-                        className="icon-button"
-                        aria-label="Limpar busca"
-                        onClick={() => setSearch("")}
-                      >
-                        <X size={14} />
-                      </button>
+                  <div className="work-facts">
+                    <span>
+                      <strong>{number(activeWork.records)}</strong> medições
+                    </span>
+                    <span>
+                      <strong>{activeWork.groups}</strong> grupos
+                    </span>
+                    <span>
+                      <strong>{number(activeWork.points)}</strong> pontos
+                    </span>
+                    <span>
+                      <strong>{number(activeWork.coordinates)}</strong> com
+                      coordenadas
+                    </span>
+                    {activeWork.warnings > 0 && (
+                      <span className="warning-text">
+                        {activeWork.warnings}{" "}
+                        {activeWork.warnings === 1 ? "aviso" : "avisos"}
+                      </span>
                     )}
-                  </label>
-                  <span className="selection-count">
-                    {selected.size} selecionados
-                  </span>
-                  <button
-                    className="text-button"
-                    onClick={() => {
-                      setSelected(new Set(source.works.map((w) => w.key)));
-                      setResult(null);
-                    }}
-                  >
-                    Selecionar todos
-                  </button>
-                  <button
-                    className="text-button muted"
-                    onClick={() => {
-                      setSelected(new Set());
-                      setResult(null);
-                    }}
-                  >
-                    Limpar
-                  </button>
-                </div>
-                <div className="table-scroll">
-                  <table className="works-table">
-                    <thead>
-                      <tr>
-                        <th className="check-cell">
-                          <input
-                            aria-label="Selecionar trabalhos visíveis"
-                            type="checkbox"
-                            checked={
-                              works.length > 0 &&
-                              works.every((w) => selected.has(w.key))
-                            }
-                            onChange={(e) => {
-                              const next = new Set(selected);
-                              works.forEach((w) =>
-                                e.target.checked
-                                  ? next.add(w.key)
-                                  : next.delete(w.key),
-                              );
-                              setSelected(next);
-                              setResult(null);
-                            }}
-                          />
-                        </th>
-                        <th>Trabalho</th>
-                        <th>Medições</th>
-                        <th>Grupos</th>
-                        <th>Período</th>
-                        <th>Situação</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {works.map((w) => (
-                        <tr
-                          key={w.key}
-                          className={selected.has(w.key) ? "selected" : ""}
-                        >
-                          <td>
-                            <input
-                              aria-label={`Selecionar ${w.name}`}
-                              type="checkbox"
-                              checked={selected.has(w.key)}
-                              onChange={() => toggle(w.key)}
-                            />
-                          </td>
-                          <td>
-                            <strong>{w.name}</strong>
-                            <small className="table-secondary">
-                              Trabalho {w.number} · {number(w.points)} pontos
-                            </small>
-                          </td>
-                          <td>{number(w.records)}</td>
-                          <td>{w.groups}</td>
-                          <td className="date-cell">
-                            {date(w.first_date)}
-                            {w.last_date && w.last_date !== w.first_date && (
-                              <small className="table-secondary">
-                                a {date(w.last_date)}
-                              </small>
-                            )}
-                          </td>
-                          <td>
-                            <span
-                              className={`badge ${w.errors.length ? "danger" : w.warnings ? "warning" : "success"}`}
-                            >
-                              {w.errors.length ? (
-                                <TriangleAlert size={13} />
-                              ) : w.warnings ? (
-                                <Info size={13} />
-                              ) : (
-                                <Check size={13} />
-                              )}{" "}
-                              {w.errors.length
-                                ? "Verificar"
-                                : w.warnings
-                                  ? `${w.warnings} avisos`
-                                  : "Lido"}
-                            </span>
-                          </td>
-                          <td>
-                            <button
-                              className="icon-button"
-                              aria-label={`Explorar ${w.name}`}
-                              onClick={() => {
-                                setActive(w.key);
-                                if (!selected.has(w.key)) toggle(w.key);
-                                navigate(2);
-                              }}
-                            >
-                              <ChevronRight size={18} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {!works.length && (
-                  <div className="empty-state">
-                    <Search size={28} />
-                    <h3>
-                      {source.works.length
-                        ? "Nenhum trabalho encontrado"
-                        : "Nenhum trabalho ativo encontrado"}
-                    </h3>
-                    <p>
-                      {source.works.length
-                        ? "Tente outro nome ou número."
-                        : "Abra outro arquivo FC2 para continuar."}
-                    </p>
+                    <span className="period">
+                      {date(activeWork.first_date)}
+                      {activeWork.last_date &&
+                      activeWork.last_date !== activeWork.first_date
+                        ? ` – ${date(activeWork.last_date)}`
+                        : ""}
+                    </span>
                   </div>
-                )}
-                <div className="table-bottom">
-                  {number(works.length)} trabalhos{" "}
-                  <span>{number(selectedRecords)} medições na seleção</span>
-                </div>
-              </section>
-            </>
-          )}
-          {step === 2 && source && (
-            <>
-              <div className="explore-toolbar">
-                <label className="field-label">
-                  Trabalho
-                  <select
-                    aria-label="Trabalho em exploração"
-                    value={active ?? ""}
-                    onChange={(e) => setActive(Number(e.target.value))}
-                  >
-                    {source.works.map((w) => (
-                      <option value={w.key} key={w.key}>
-                        {w.name} · {w.number}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field-label">
-                  Grupo
-                  <select
-                    aria-label="Filtrar grupo"
-                    value={group}
-                    onChange={(e) => {
-                      setGroup(e.target.value);
-                      setPage(0);
-                    }}
-                  >
-                    {<option value="all">Todos os grupos</option>}
-                    {detail?.groups.map((g) => (
-                      <option key={g.group} value={g.group}>
-                        Grupo {g.group}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {activeWork && (
-                  <span className="explore-meta">
-                    {number(activeWork.records)} medições <span>·</span>{" "}
-                    {number(activeWork.points)} pontos
-                  </span>
-                )}
-              </div>
-              <section className="panel">
+                </section>
                 <div
                   className="tabs"
                   role="tablist"
-                  aria-label="Visualização dos dados"
+                  aria-label="Visualização do trabalho"
                 >
-                  {[
-                    { id: "table", name: "Medições", icon: Table2 },
-                    { id: "chart", name: "Gráfico", icon: BarChart3 },
-                    { id: "map", name: "Coordenadas", icon: MapPin },
-                    {
-                      id: "source",
-                      name: "Origem e avisos",
-                      icon: ShieldCheck,
-                    },
-                  ].map((t) => (
+                  {tabs.map((t) => (
                     <button
                       key={t.id}
                       role="tab"
@@ -763,18 +563,17 @@ function App() {
                       className={tab === t.id ? "active" : ""}
                       onClick={() => setTab(t.id)}
                     >
-                      <t.icon size={16} />
+                      <t.icon size={15} />
                       {t.name}
                     </button>
                   ))}
                 </div>
                 {detailError ? (
                   <div className="empty-state" role="alert">
-                    <TriangleAlert size={25} />
-                    <h3>Não foi possível carregar o trabalho</h3>
+                    <TriangleAlert size={24} />
                     <p>{detailError}</p>
                     <button
-                      className="button secondary"
+                      className="button"
                       onClick={() => setDetailAttempt((n) => n + 1)}
                     >
                       Tentar novamente
@@ -782,90 +581,135 @@ function App() {
                   </div>
                 ) : !detail ? (
                   <div className="empty-state" role="status">
-                    <LoaderCircle className="spin" size={25} />
+                    <LoaderCircle size={24} className="spin" />
                     <p>Carregando medições…</p>
                   </div>
                 ) : (
-                  <div role="tabpanel">
+                  <div
+                    className={`tab-content ${tab === "table" ? "table-content" : ""}`}
+                    role="tabpanel"
+                  >
+                    {tab !== "source" && (
+                      <div className="record-toolbar">
+                        <label className="search record-search">
+                          <Search size={14} />
+                          <input
+                            aria-label="Buscar medições"
+                            placeholder="ID, ponto, data ou hora"
+                            value={query}
+                            onChange={(e) => {
+                              setQuery(e.target.value);
+                              setPage(0);
+                            }}
+                          />
+                        </label>
+                        <select
+                          aria-label="Filtrar grupo"
+                          value={group}
+                          onChange={(e) => {
+                            setGroup(e.target.value);
+                            setPage(0);
+                          }}
+                        >
+                          <option value="all">Todos os grupos</option>
+                          {detail.groups.map((g) => (
+                            <option key={g.group} value={g.group}>
+                              Grupo {g.group}
+                            </option>
+                          ))}
+                        </select>
+                        <label className="warning-filter">
+                          <input
+                            type="checkbox"
+                            checked={warningsOnly}
+                            onChange={(e) => {
+                              setWarningsOnly(e.target.checked);
+                              setPage(0);
+                            }}
+                          />
+                          Somente avisos
+                        </label>
+                        <span className="record-count">
+                          {number(filteredRows.length)} / {number(rows.length)}{" "}
+                          registros
+                        </span>
+                      </div>
+                    )}
                     {tab === "table" && (
                       <>
-                        <div className="data-caption">
-                          <span>
-                            Índices de clorofila armazenados no instrumento
-                          </span>
-                          <span>
-                            Clique em uma medição para inspecionar a origem
-                          </span>
-                        </div>
                         <div className="table-scroll">
                           <table className="measure-table">
                             <thead>
                               <tr>
-                                {[
-                                  "Grupo",
-                                  "Medição",
-                                  "Ponto",
-                                  "Data · Hora",
-                                  "Clorofila A",
-                                  "Clorofila B",
-                                  "Total",
-                                  "",
-                                ].map((s, i) => (
-                                  <th key={i}>{s}</th>
-                                ))}
+                                {tableHead("ID", "id")}
+                                {tableHead("Grupo", "group")}
+                                {tableHead("Ponto", "point")}
+                                {tableHead("Data / hora", "date")}
+                                {tableHead("Índice A", "chlorophyll_a_index")}
+                                {tableHead("Índice B", "chlorophyll_b_index")}
+                                {tableHead("Total", "chlorophyll_total_index")}
+                                <th>Latitude</th>
+                                <th>Longitude</th>
+                                {tableHead("Avisos", "warnings")}
+                                <th />
                               </tr>
                             </thead>
                             <tbody>
                               {filteredRows
                                 .slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
                                 .map((r) => (
-                                  <tr key={`${r.group}-${r.index}`}>
-                                    <td>
-                                      <span className="group-pill">
-                                        {r.group}
-                                      </span>
-                                    </td>
+                                  <tr
+                                    key={`${r.group}-${r.index}`}
+                                    onClick={() => setRecord(r)}
+                                  >
                                     <td>{r.id}</td>
+                                    <td>{r.group}</td>
                                     <td>{r.point}</td>
-                                    <td>
-                                      {date(r.date)}
-                                      <small className="table-secondary">
-                                        {r.time || "—"}
-                                      </small>
+                                    <td className="date-cell">
+                                      {date(r.date)}{" "}
+                                      <span>{r.time || "—"}</span>
                                     </td>
                                     <td>{value(r.chlorophyll_a_index)}</td>
                                     <td>{value(r.chlorophyll_b_index)}</td>
-                                    <td>
-                                      <strong className="total-value">
-                                        {value(r.chlorophyll_total_index)}
-                                      </strong>
+                                    <td className="total-value">
+                                      {value(r.chlorophyll_total_index)}
+                                    </td>
+                                    <td>{r.latitude?.toFixed(6) || "—"}</td>
+                                    <td>{r.longitude?.toFixed(6) || "—"}</td>
+                                    <td
+                                      className={
+                                        r.warnings.length ? "warning-text" : ""
+                                      }
+                                    >
+                                      {r.warnings.length || "—"}
                                     </td>
                                     <td>
                                       <button
-                                        className="icon-button"
+                                        className="icon-button inspect-button"
                                         aria-label={`Inspecionar medição ${r.id} do grupo ${r.group}`}
-                                        onClick={() => setRecord(r)}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setRecord(r);
+                                        }}
                                       >
-                                        {r.warnings.length ? (
-                                          <TriangleAlert size={16} />
-                                        ) : (
-                                          <ChevronRight size={16} />
-                                        )}
+                                        <Info size={14} />
                                       </button>
                                     </td>
                                   </tr>
                                 ))}
                             </tbody>
                           </table>
+                          {!filteredRows.length && (
+                            <div className="empty-state">
+                              <p>Nenhuma medição para os filtros atuais.</p>
+                            </div>
+                          )}
                         </div>
-                        {!filteredRows.length && (
-                          <div className="empty-state">
-                            <Table2 size={26} />
-                            <p>Este grupo não contém medições.</p>
-                          </div>
-                        )}
                         <div className="table-bottom">
-                          {number(filteredRows.length)} medições{" "}
+                          <span>
+                            Índices do instrumento · Ausências: — · Clique no
+                            registro para inspecionar
+                          </span>
                           <div className="pagination">
                             <button
                               className="icon-button"
@@ -873,7 +717,7 @@ function App() {
                               disabled={page === 0}
                               onClick={() => setPage(page - 1)}
                             >
-                              <ChevronLeft size={17} />
+                              <ChevronLeft size={15} />
                             </button>
                             <span>
                               {page + 1} de{" "}
@@ -890,24 +734,24 @@ function App() {
                               }
                               onClick={() => setPage(page + 1)}
                             >
-                              <ChevronRight size={17} />
+                              <ChevronRight size={15} />
                             </button>
                           </div>
                         </div>
                       </>
                     )}
-                    {tab === "chart" && <Chart rows={filteredRows} />}
-                    {tab === "map" && <CoordinatePlot rows={filteredRows} />}
+                    {tab === "chart" && <Chart rows={filteredOriginRows} />}
+                    {tab === "map" && (
+                      <CoordinatePlot rows={filteredOriginRows} />
+                    )}
                     {tab === "source" && (
                       <div className="audit-content">
-                        <h3>Um caminho de volta à origem.</h3>
-                        <p>
-                          As medições mantêm seus valores e ausências conforme a
-                          leitura do arquivo.
-                        </p>
+                        <h3>Origem</h3>
                         <dl className="metadata">
                           <dt>Arquivo</dt>
                           <dd>{source.name}</dd>
+                          <dt>Tamanho</dt>
+                          <dd>{number(source.size)} bytes</dd>
                           <dt>SHA-256</dt>
                           <dd className="mono">{source.sha256}</dd>
                           <dt>Diretório</dt>
@@ -919,212 +763,145 @@ function App() {
                           <dt>Origem do nome</dt>
                           <dd>{detail.name_source}</dd>
                         </dl>
-                        {[...detail.errors, ...detail.warnings].map((w, i) => (
-                          <div className="notice warning" key={i}>
-                            <TriangleAlert size={17} />
-                            <span>{w}</span>
-                          </div>
-                        ))}
-                        <h4>Observações da leitura</h4>
-                        {source.limitations.map((s, i) => (
+                        <h3>Avisos e limitações</h3>
+                        {[
+                          ...detail.errors,
+                          ...detail.warnings,
+                          ...source.limitations,
+                        ].map((s, i) => (
                           <p className="limitation" key={i}>
-                            <Info size={15} />
+                            <Info size={14} />
                             {s}
                           </p>
                         ))}
-                        <div className="quiet-note">
-                          <ShieldCheck size={18} />
-                          <p>
-                            A leitura estrutural não certifica equivalência
-                            científica com uma referência Leaf. O datum das
-                            coordenadas não está confirmado.
-                          </p>
-                        </div>
+                        <p className="quiet-note">
+                          Equivalência Leaf não presumida. Datum das coordenadas
+                          não confirmado.
+                        </p>
                       </div>
                     )}
                   </div>
                 )}
-              </section>
-            </>
-          )}
-          {step === 3 && source && (
-            <>
-              <div className="export-layout">
-                <div>
-                  <div className="section-label">FORMATO DE SAÍDA</div>
-                  <div
-                    className="format-options"
-                    role="radiogroup"
-                    aria-label="Formato de exportação"
-                  >
-                    {formats.map((f) => (
-                      <label
-                        className={`format-card ${mode === f.id ? "chosen" : ""}`}
-                        key={f.id}
-                      >
-                        <input
-                          type="radio"
-                          name="format"
-                          value={f.id}
-                          checked={mode === f.id}
-                          onChange={() => {
-                            setMode(f.id);
-                            setResult(null);
-                          }}
-                        />
-                        <span className="format-icon">
-                          <f.icon size={25} strokeWidth={1.5} />
-                        </span>
-                        <span className="format-copy">
-                          <strong>{f.title}</strong>
-                          <small>{f.description}</small>
-                          <span className="format-tag">{f.tag}</span>
-                        </span>
-                        <span className="radio-circle">
-                          {mode === f.id && <span />}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                  {mode === "json" && selected.size !== 1 && (
-                    <div className="notice warning">
-                      <Info size={18} />
-                      <span>
-                        Para JSON de auditoria, volte à seleção e escolha um
-                        único trabalho.
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <aside className="export-summary">
-                  <div className="summary-icon">
-                    <FileCheck2 size={24} />
-                  </div>
-                  <h3>Tudo pronto?</h3>
-                  <p>Confira o que você está levando.</p>
-                  <dl>
-                    <dt>Arquivo de origem</dt>
-                    <dd>{source.name}</dd>
-                    <dt>Trabalhos selecionados</dt>
-                    <dd>{number(selected.size)}</dd>
-                    <dt>Medições</dt>
-                    <dd>{number(selectedRecords)}</dd>
-                  </dl>
-                  <div className="summary-divider" />
-                  <div className="summary-note">
-                    <ShieldCheck size={18} />
-                    <span>
-                      {mode === "json"
-                        ? "Escolha onde salvar a auditoria JSON. Arquivos existentes são preservados."
-                        : "Uma nova pasta será criada no destino escolhido. Os arquivos existentes são preservados."}
-                    </span>
-                  </div>
-                  <button className="text-button" onClick={() => navigate(1)}>
-                    <SlidersHorizontal size={15} /> Revisar seleção
-                  </button>
-                </aside>
-              </div>
-              {result && (
-                <div
-                  className={`export-result ${result.failures ? "partial" : ""}`}
-                  role="status"
-                >
-                  <span className="result-icon">
-                    {result.failures ? (
-                      <TriangleAlert size={25} />
-                    ) : (
-                      <Check size={27} />
-                    )}
-                  </span>
-                  <div>
-                    <h3>
-                      {result.failures
-                        ? "Exportação concluída com pendências"
-                        : "Seus dados estão prontos."}
-                    </h3>
-                    <p>
-                      {mode === "json"
-                        ? "Auditoria JSON salva."
-                        : `${number(result.workbooks)} planilhas exportadas. ${result.failures ? `${result.failures} trabalhos bloqueados.` : "Você já pode continuar sua análise."}`}
-                    </p>
-                    <code>{result.path}</code>
-                    {result.errors.map((e, i) => (
-                      <p key={i}>{e}</p>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div className="quiet-note">
-                <Info size={16} />
-                <p>
-                  Campos ausentes ficam vazios. O total de clorofila é
-                  preservado como armazenado no instrumento.
-                </p>
-              </div>
-            </>
-          )}
-        </div>
-        <footer className="footer">
-          <div className="footer-status">
-            <span className="footer-step">
-              0{step + 1}
-              <span> / 04</span>
-            </span>
-            <span>
-              {source
-                ? `${selected.size} ${selected.size === 1 ? "trabalho selecionado" : "trabalhos selecionados"}`
-                : "Tudo começa com um arquivo."}
-            </span>
-          </div>
-          <div className="footer-actions">
-            {step > 0 && (
-              <button
-                className="button secondary"
-                disabled={!!busy}
-                onClick={() => navigate(step - 1)}
-              >
-                <ArrowLeft size={16} /> Voltar
-              </button>
-            )}
-            {step < 3 ? (
-              <button
-                className="button primary"
-                disabled={!canContinue || !!busy}
-                onClick={() => navigate(step + 1)}
-              >
-                {step === 2 ? "Preparar exportação" : "Continuar"}
-                <ArrowRight size={16} />
-              </button>
+              </>
             ) : (
-              <button
-                className="button primary"
-                disabled={
-                  !!busy ||
-                  !selected.size ||
-                  (mode === "json" && selected.size !== 1)
-                }
-                onClick={() => void exportData()}
-              >
-                {busy ? (
-                  <LoaderCircle className="spin" size={17} />
-                ) : (
-                  <ArrowDownToLine size={17} />
-                )}{" "}
-                Escolher destino e exportar
-              </button>
+              <div className="empty-state">
+                <Database size={28} />
+                <p>Nenhum trabalho ativo no arquivo.</p>
+              </div>
             )}
-          </div>
-        </footer>
-      </main>
+          </main>
+        </div>
+      )}
+      <footer className="statusbar">
+        <span>
+          {source
+            ? `${source.name} · ${(source.size / 1048576).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} MB`
+            : "Nenhum arquivo aberto"}
+        </span>
+        {source && (
+          <span>
+            {source.works.length} trabalhos · {number(source.records)} medições
+            · {number(source.coordinates)} coordenadas
+          </span>
+        )}
+        <span className="status-right">
+          {busy || "Local · FC2 Explorer 0.2.0"}
+        </span>
+      </footer>
       {drag && (
         <div className="drop-overlay">
-          <FileUp size={50} />
-          <h2>Solte seu arquivo FC2 aqui</h2>
+          <FileUp size={38} />
+          <strong>Solte o arquivo FC2</strong>
         </div>
+      )}
+      {exportOpen && source && (
+        <Dialog title="Exportar trabalhos" close={closeExport} footer={false}>
+          <div className="export-selection">
+            <strong>
+              {selected.size} {selected.size === 1 ? "trabalho" : "trabalhos"}
+            </strong>
+            <span>{number(selectedRecords)} medições</span>
+          </div>
+          <label className="field-label">
+            Formato
+            <select
+              aria-label="Formato de exportação"
+              value={mode}
+              disabled={!!busy}
+              onChange={(e) => {
+                setMode(e.target.value);
+                setResult(null);
+              }}
+            >
+              <option value="simple">XLSX — somente planilhas</option>
+              <option value="complete">Completo — planilhas e auditoria</option>
+              <option value="json">JSON — auditoria de um trabalho</option>
+            </select>
+          </label>
+          <p className="export-description">
+            {mode === "json"
+              ? "Um arquivo JSON com registros, bytes e origem."
+              : "Uma nova subpasta será criada no destino escolhido. Arquivos existentes são preservados."}
+          </p>
+          {mode === "json" && selected.size !== 1 && (
+            <p className="notice warning">
+              Selecione um único trabalho para exportar JSON.
+            </p>
+          )}
+          {result && (
+            <div
+              className={`notice export-result ${result.failures ? "warning" : "success"}`}
+              role="status"
+            >
+              <div>
+                <strong>
+                  {result.failures
+                    ? "Exportação com pendências"
+                    : "Exportação concluída"}
+                </strong>
+                <p>
+                  {mode === "json"
+                    ? "Auditoria JSON salva."
+                    : `${result.workbooks} planilhas; ${result.failures} trabalhos bloqueados.`}
+                </p>
+                <code>{result.path}</code>
+                {result.errors.map((s, i) => (
+                  <p key={i}>{s}</p>
+                ))}
+              </div>
+            </div>
+          )}
+          {error && (
+            <p className="notice error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="dialog-footer">
+            <button className="button" disabled={!!busy} onClick={closeExport}>
+              Fechar
+            </button>
+            <button
+              className="button primary"
+              disabled={
+                !!busy ||
+                !selected.size ||
+                (mode === "json" && selected.size !== 1)
+              }
+              onClick={() => void exportData()}
+            >
+              {busy ? (
+                <LoaderCircle size={15} className="spin" />
+              ) : (
+                <ArrowDownToLine size={15} />
+              )}
+              Escolher destino e exportar
+            </button>
+          </div>
+        </Dialog>
       )}
       {record && (
         <Dialog title={`Medição ${record.id}`} close={() => setRecord(null)}>
-          <p className="dialog-subtitle">
+          <p>
             Grupo {record.group} · Ponto {record.point}
           </p>
           <dl className="metadata">
@@ -1132,16 +909,16 @@ function App() {
             <dd>
               {date(record.date)} {record.time || "—"}
             </dd>
-            <dt>Coordenadas</dt>
+            <dt>Latitude / longitude</dt>
             <dd>
-              {value(record.latitude)}, {value(record.longitude)}
+              {value(record.latitude)} / {value(record.longitude)}
             </dd>
-            <dt>Arquivo de origem</dt>
+            <dt>Arquivo</dt>
             <dd>{record.source_file}</dd>
             <dt>SHA-256 do registro</dt>
             <dd className="mono">{record.raw_sha256}</dd>
           </dl>
-          <h4>Segmentos no arquivo FC2</h4>
+          <h4>Segmentos FC2</h4>
           {record.segments.map((s, i) => (
             <code className="segment" key={i}>
               Offset 0x{s.file_offset.toString(16)} · Memória 0x
@@ -1152,70 +929,32 @@ function App() {
           <pre className="raw-bytes">
             {record.raw_hex.match(/.{1,2}/g)?.join(" ")}
           </pre>
-          {record.warnings.map((w, i) => (
-            <div key={i} className="notice warning">
-              <TriangleAlert size={16} />
-              <span>{w}</span>
-            </div>
+          {record.warnings.map((s, i) => (
+            <p className="notice warning" key={i}>
+              {s}
+            </p>
           ))}
         </Dialog>
       )}
       {help && (
-        <Dialog title="Um espaço para seus dados." close={() => setHelp(false)}>
+        <Dialog title="FC2 Explorer" close={() => setHelp(false)}>
           <p>
-            O FC2 Explorer lê trabalhos ativos em arquivos Falker FC2 e organiza
-            suas medições para exploração e exportação.
+            Abra um FC2 e escolha o trabalho na lista lateral. As caixas de
+            seleção definem os trabalhos para exportação.
           </p>
-          <div className="help-steps">
-            {steps.map((s, i) => (
-              <div key={s.title}>
-                <span className="step-number">0{i + 1}</span>
-                <span>
-                  <strong>{s.title}</strong>
-                  <p>{s.description}</p>
-                </span>
-              </div>
-            ))}
-          </div>
           <p>
-            <kbd>Ctrl O</kbd> Abrir arquivo <span className="help-gap" />
-            <kbd>Esc</kbd> Fechar diálogo
+            Use as abas para consultar medições, gráficos, coordenadas e
+            metadados. Clique nos cabeçalhos da tabela para ordenar.
           </p>
-          <div className="quiet-note">
-            <Info size={17} />
-            <p>
-              Ferramenta independente, sem vínculo com a Falker. Compatibilidade
-              limitada à variante documentada pelo projeto.
-            </p>
-          </div>
+          <p>
+            <kbd>Ctrl O</kbd> Abrir arquivo · <kbd>Esc</kbd> Fechar diálogo
+          </p>
+          <p className="quiet-note">
+            Leitura estrutural da variante FC2 documentada. Equivalência Leaf
+            não presumida. Datum não confirmado.
+          </p>
         </Dialog>
       )}
-    </div>
-  );
-}
-
-function Feature({
-  icon: Icon,
-  title,
-  text,
-}: {
-  icon: typeof Leaf;
-  title: string;
-  text: string;
-}) {
-  return (
-    <div className="feature">
-      <Icon size={21} strokeWidth={1.5} />
-      <h3>{title}</h3>
-      <p>{text}</p>
-    </div>
-  );
-}
-function Stat({ label, value: n }: { label: string; value: number }) {
-  return (
-    <div className="stat">
-      <span>{label}</span>
-      <strong>{number(n)}</strong>
     </div>
   );
 }
@@ -1223,10 +962,12 @@ function Dialog({
   title,
   close,
   children,
+  footer = true,
 }: {
   title: string;
   close: () => void;
   children: React.ReactNode;
+  footer?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1280,11 +1021,13 @@ function Dialog({
           </button>
         </header>
         {children}
-        <div className="dialog-footer">
-          <button className="button primary" onClick={close}>
-            Entendi
-          </button>
-        </div>
+        {footer && (
+          <div className="dialog-footer">
+            <button className="button primary" onClick={close}>
+              Fechar
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1307,7 +1050,7 @@ function Chart({ rows }: { rows: Row[] }) {
     <div className="chart-content">
       <div className="chart-heading">
         <div>
-          <h3>Uma medição de cada vez.</h3>
+          <h3>Índices de clorofila</h3>
           <p>Índices armazenados, na ordem de origem dos registros.</p>
         </div>
         <select
@@ -1401,7 +1144,7 @@ function CoordinatePlot({ rows }: { rows: Row[] }) {
     <div className="chart-content">
       <div className="chart-heading">
         <div>
-          <h3>Onde as medições aconteceram.</h3>
+          <h3>Coordenadas dos registros</h3>
           <p>
             {number(points.length)} registros com coordenadas · visualização
             local

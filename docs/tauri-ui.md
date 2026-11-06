@@ -7,22 +7,26 @@ independentes da nova interface.
 
 ## Direção visual
 
-A referência é o [Anaconda Web UI do Fedora](https://fedoramagazine.org/anaconda-installer-redesign/):
-fluxo guiado, navegação lateral persistente, conteúdo espaçoso, destaque azul,
-revisão antes da ação e rodapé com ações previsíveis. A identidade e os recursos
-gráficos são do FC2 Explorer; não há associação com o Fedora.
+A referência visual é o [instalador do Ubuntu](https://ubuntu.com/blog/how-we-designed-the-new-ubuntu-desktop-installer/):
+controles simples, superfícies neutras, destaque laranja e tipografia Ubuntu
+incorporada ao aplicativo. Não há vínculo com a Canonical ou com o Ubuntu.
 
-A interface oferece:
+A organização segue o explorador da GUI original: lista de trabalhos à esquerda,
+resumo compacto e dados à direita. A área de trabalho ocupa toda a janela, sem
+fluxo obrigatório por etapas ou telas promocionais. O conteúdo usa rolagem
+própria e mantém as ações de abertura e exportação acessíveis.
 
-- Abertura por diálogo nativo, arrastar arquivo, `Ctrl O` ou argumento de linha de comando.
-- Busca e seleção de trabalhos, contagens de registros/grupos/pontos e avisos.
-- Tabela paginada, filtro de grupo e inspeção de bytes, hashes e segmentos de cada registro.
-- Gráfico dos índices armazenados e dispersão local de coordenadas, sem serviços de mapas.
-- Origem e limitações disponíveis junto aos dados.
-- XLSX simples, pacote completo e auditoria JSON de um trabalho.
-- Temas claro/escuro persistentes, navegação por teclado e respeito a movimento reduzido.
+- Trabalhos e medições simultâneos; selecionar um trabalho para visualizar não altera as caixas de exportação.
+- Busca por nome/ID do trabalho e por ID/ponto/data/hora nas medições.
+- Filtros de grupo e de registros com avisos, visíveis também nos gráficos e nas coordenadas.
+- Ordenação por coluna na tabela, paginação, latitude/longitude e inspeção dos bytes de cada registro.
+- Resumo com medições, grupos, pontos, coordenadas, avisos e período do trabalho.
+- Metadados, SHA-256, configuração, limitações e avisos da leitura.
+- Exportação direta em diálogo: XLSX simples, pacote completo ou JSON de um trabalho.
+- Temas claro/escuro, atalhos, abertura por arrastar arquivo e argumento de linha de comando.
 
-Os gráficos mostram registros individuais na ordem de origem, sem inferir
+Os gráficos respeitam os filtros e mostram registros na ordem de origem,
+independentemente da ordenação da tabela, sem inferir
 réplicas ou médias. Grupos mantêm sua identidade; o total de clorofila não é
 recalculado a partir de A+B. O gráfico de coordenadas ajusta os eixos
 independentemente, não representa distâncias e informa o datum desconhecido.
@@ -116,4 +120,12 @@ ponte Rust, testes de navegador, Clippy e compilação nativa Linux. O composito
 confirmou uma janela `fc2-desktop` com título `FC2 Explorer`. A interação manual
 com os seletores nativos e os instaladores Windows/Linux não está certificada.
 
-![Tela inicial do FC2 Explorer](images/tauri-welcome.png)
+Os seis testes de interface cobrem o layout em 800 × 620, 1240 × 820 e
+1900 × 1026, busca, filtros, ordenação, inspeção, exportação e recuperação de erros.
+Em 1240 × 820, pelo menos 15 registros ficam visíveis junto à lista de trabalhos,
+sem rolagem externa da janela.
+
+A fonte Ubuntu Regular/Medium está incorporada, sem modificações, sob Ubuntu Font
+Licence 1.0. Origem e avisos estão em `desktop/public/fonts/`.
+
+![Explorador compacto do FC2 Explorer](images/tauri-workspace.png)
