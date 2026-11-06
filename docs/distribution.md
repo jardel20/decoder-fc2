@@ -1,10 +1,14 @@
 # Distribuição portátil
 
-O workflow **Portable distribution** (`.github/workflows/distribution.yml`) gera
-dois artefatos: Windows x64 portátil e Linux x86_64 AppImage. Após enviar os
-arquivos do projeto ao GitHub, abra Actions → Portable distribution → Run workflow.
-Também é acionado por tags `v*`. Os resultados ficam nos artefatos da execução;
-o workflow não publica Releases nem envia arquivos experimentais.
+O workflow **FC2 Explorer release** (`.github/workflows/release.yml`) compila a
+interface Tauri e gera dois arquivos: `FC2-Explorer-x86_64.AppImage` (Linux) e
+`FC2-Explorer-Windows-portable.exe` (Windows x64), cada um com seu `.sha256`.
+Ao enviar uma tag `v*`, os arquivos são publicados também como GitHub Release.
+Em execuções manuais ou por alteração do workflow, ficam só como artefatos.
+O EXE do Windows usa o WebView2, já presente no Windows 10/11 atualizado.
+
+O workflow **Portable distribution** (`distribution.yml`) ficou como execução
+manual e empacota a interface egui anterior (`gui/`), descrita abaixo.
 
 ## Windows
 
