@@ -22,7 +22,6 @@ import {
   FileUp,
   FolderOpen,
   Info,
-  Leaf,
   LoaderCircle,
   MapPin,
   Moon,
@@ -639,7 +638,7 @@ function App() {
           </button>
         )}
         <div className="brand">
-          <Leaf size={18} />
+          <img src="/icon.svg" width={22} height={22} alt="" />
           <strong>FC2 Explorer</strong>
         </div>
         <button

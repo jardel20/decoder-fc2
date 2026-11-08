@@ -122,8 +122,9 @@ kbd {
   margin-right: 10px;
   white-space: nowrap;
 }
-.brand svg {
-  color: var(--brand);
+.brand img {
+  display: block;
+  flex-shrink: 0;
 }
 .brand strong {
   font-size: 14px;

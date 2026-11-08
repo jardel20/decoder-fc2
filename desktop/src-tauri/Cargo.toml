@@ -1,6 +1,6 @@
 [package]
 name = "fc2-desktop"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 rust-version = "1.90"
 license = "MIT"
@@ -34,4 +34,4 @@ base64 = { version = "0.22", optional = true }
 tempfile = "3.27"
 
 [lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"

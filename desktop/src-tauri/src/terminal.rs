@@ -37,9 +37,18 @@ pub fn launch(path: Option<&Path>) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-pub fn launch(_path: Option<&Path>) -> Result<(), String> {
-    let _ = Command::new("cmd");
-    Err("A TUI não está disponível a partir desta interface no Windows; use a CLI.".into())
+pub fn launch(path: Option<&Path>) -> Result<(), String> {
+    // The child allocates its own console, so no shell or companion binary is
+    // needed. Paths remain literal arguments, never shell code.
+    let mut command = Command::new(launcher_executable(None)?);
+    command.arg("--tui");
+    if let Some(path) = path {
+        command.arg(path);
+    }
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Não foi possível abrir o terminal: {error}"))
 }
 
 /// Relaunch the outer AppImage when present so the TUI owns its own mount.
@@ -57,7 +66,39 @@ fn launcher_executable(appimage: Option<std::ffi::OsString>) -> Result<PathBuf, 
 }
 
 pub fn run(path: Option<&Path>) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    windows_console::attach()?;
     fc2_rs::tui::run(path, None).map_err(|error| error.to_string())
+}
+
+// A Windows GUI-subsystem executable has no console by default. These two calls
+// attach to the parent console or create one; no pointers or buffers cross FFI.
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+mod windows_console {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn AttachConsole(process_id: u32) -> i32;
+        fn AllocConsole() -> i32;
+    }
+    pub fn attach() -> Result<(), String> {
+        // SAFETY: ATTACH_PARENT_PROCESS is the documented sentinel; no pointers,
+        // ownership or lifetimes are involved. Called before any stdio use.
+        if unsafe { AttachConsole(u32::MAX) } == 0 {
+            // ERROR_ACCESS_DENIED means the process already has a console.
+            if std::io::Error::last_os_error().raw_os_error() == Some(5) {
+                return Ok(());
+            }
+            // SAFETY: AllocConsole takes no arguments and the process has no console yet.
+            if unsafe { AllocConsole() } == 0 {
+                return Err(format!(
+                    "Não foi possível abrir o terminal da TUI: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]
