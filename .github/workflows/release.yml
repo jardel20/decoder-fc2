@@ -4,7 +4,7 @@ on:
   push:
     branches: ["feature/**"]
     tags: ["v*"]
-    paths: [".github/workflows/release.yml"]
+    paths: [".github/workflows/release.yml", "desktop/src-tauri/tauri.conf.json"]
 permissions:
   contents: read
 jobs:
